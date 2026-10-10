@@ -12,6 +12,7 @@ import {
   Sparkles, 
   FileText 
 } from "lucide-react";
+import { generateMockCertificatePdf } from "@/lib/generateMockPdf";
 
 interface CertificatePreviewProps {
   recipientName?: string;
@@ -34,40 +35,41 @@ export default function CertificatePreview({
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadStep, setDownloadStep] = useState<string | null>(null);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     setIsDownloading(true);
     setDownloadStep("Validating mock cryptographic hash...");
-    setTimeout(() => {
-      setDownloadStep("Compiling PDF vector layout...");
-      setTimeout(() => {
-        setDownloadStep("Complete! Triggering mock download.");
-        setTimeout(() => {
-          setIsDownloading(false);
-          setDownloadStep(null);
-          if (onDownloadMock) {
-            onDownloadMock();
-          } else {
-            // Trigger sample mock file download
-            const element = document.createElement("a");
-            const file = new Blob([
-              `ALGOXILLA CERTIFICATE OF PARTICIPATION (MOCK DEMO)
-Recipient: ${recipientName}
-Event: ALGOTHON'26 — A NATIONAL LEVEL HACKATHON
-Date: ${issueDate}
-Certificate ID: ${certificateId}
-Verification Hash: ${verificationHash}
-Verification URL: https://certificates.algoxilla.com/verify/${certificateId}
-Notice: This is a synthetic mock record generated for Phase 1 UI validation.`
-            ], { type: "text/plain" });
-            element.href = URL.createObjectURL(file);
-            element.download = `${certificateId}_Mock_Certificate.txt`;
-            document.body.appendChild(element);
-            element.click();
-            document.body.removeChild(element);
-          }
-        }, 800);
-      }, 700);
-    }, 600);
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      setDownloadStep("Compiling PDF vector layout with pdf-lib...");
+      
+      const pdfBlob = await generateMockCertificatePdf({
+        recipientName,
+        certificateId,
+        issueDate,
+        verificationHash,
+      });
+
+      await new Promise((r) => setTimeout(r, 400));
+      setDownloadStep("Complete! Triggering mock PDF download.");
+
+      if (onDownloadMock) {
+        onDownloadMock();
+      } else {
+        const url = URL.createObjectURL(pdfBlob);
+        const element = document.createElement("a");
+        element.href = url;
+        element.download = `${certificateId}_Algothon26_Certificate.pdf`;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch (err) {
+      console.error("PDF generation error:", err);
+    } finally {
+      setIsDownloading(false);
+      setDownloadStep(null);
+    }
   };
 
   return (

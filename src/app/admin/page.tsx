@@ -535,7 +535,7 @@ export default function AdminDashboardPage() {
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div>
                       <span className="text-[10px] font-mono text-neutral-500 block">
-                        {corr.id} • {new Date(corr.submittedAt).toLocaleDateString()}
+                        {corr.id} • {corr.submittedAt.slice(0, 10)}
                       </span>
                       <h3 className="text-sm font-bold text-white mt-0.5">{corr.email}</h3>
                     </div>

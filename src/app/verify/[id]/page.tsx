@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import CertificatePreview from "@/components/CertificatePreview";
 import { findMockCertificateById } from "@/lib/mockData";
+import { getVerificationUrl } from "@/lib/config";
 
 function CertificateVerificationContent({
   params,
@@ -207,9 +208,12 @@ function CertificateVerificationContent({
                 {matched.verificationHash}
               </div>
 
-              <div className="flex flex-wrap items-center justify-between text-[11px] text-neutral-500 font-mono pt-1">
-                <span>Protocol: SHA-256 Dual-Key Verification v1.0</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-400 font-mono pt-1">
+                <span>Canonical URL: <span className="text-emerald-400">{getVerificationUrl(matched.certificateId || "")}</span></span>
                 <span>Audit Status: Passed Anti-Tamper Check</span>
+              </div>
+              <div className="text-[10px] text-neutral-500 font-mono">
+                Protocol: SHA-256 Dual-Key Verification v1.0 • Environment-based registry
               </div>
             </div>
 

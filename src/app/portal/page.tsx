@@ -280,6 +280,13 @@ export default function ParticipantPortalPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setEmail("david.kim@example.com")}
+                  className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-amber-300 hover:border-amber-500/50 text-[11px]"
+                >
+                  ⏳ David Kim (Issuance Pending)
+                </button>
+                <button
+                  type="button"
                   onClick={() => setEmail("unregistered@example.com")}
                   className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-400 hover:border-red-500/50 text-[11px]"
                 >
@@ -444,16 +451,50 @@ export default function ParticipantPortalPage() {
               </div>
             )}
 
-            {/* Certificate Component */}
-            <div className="pt-2">
-              <CertificatePreview
-                recipientName={participant.fullName}
-                certificateId={participant.certificateId || "MOCK-ALGO26-8942"}
-                issueDate={participant.issueDate || "4 October 2026"}
-                verificationHash={participant.verificationHash || "sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
-                onRequestCorrection={() => setIsCorrectionModalOpen(true)}
-              />
-            </div>
+            {/* Certificate Component OR Pending Issuance Safeguard */}
+            {participant.certificateStatus === "ISSUED" ? (
+              <div className="pt-2">
+                <CertificatePreview
+                  recipientName={participant.fullName}
+                  certificateId={participant.certificateId || "MOCK-ALGO26-8942"}
+                  issueDate={participant.issueDate || "4 October 2026"}
+                  verificationHash={participant.verificationHash || "sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
+                  onRequestCorrection={() => setIsCorrectionModalOpen(true)}
+                />
+              </div>
+            ) : (
+              <div className="p-8 rounded-2xl bg-neutral-900 border border-amber-500/40 text-center space-y-4 shadow-xl">
+                <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto">
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <span className="px-2.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-amber-950 border border-amber-800 text-amber-300 font-semibold">
+                    REGISTRATION CONFIRMED • ISSUANCE IN PROGRESS
+                  </span>
+                  <h3 className="text-xl font-bold text-white">Certificate Pending Organizer Finalization</h3>
+                  <p className="text-xs text-neutral-400 max-w-md mx-auto leading-relaxed">
+                    Your attendance for <strong className="text-neutral-200">Algothon&apos;26</strong> has been verified. However, official digital certificate issuance is currently being processed by the organizers.
+                  </p>
+                </div>
+                <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 text-left text-xs text-neutral-400 max-w-md mx-auto space-y-1 font-mono">
+                  <div className="flex justify-between">
+                    <span>Participant:</span>
+                    <span className="text-neutral-200">{participant.fullName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Event Roster Status:</span>
+                    <span className="text-emerald-400">CONFIRMED</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Issuance Status:</span>
+                    <span className="text-amber-400">PENDING_BATCH_STAMP</span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-neutral-500 max-w-sm mx-auto">
+                  [Eligibility Safeguard] Certificates cannot be downloaded until batch cryptography and signatures are finalized.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
