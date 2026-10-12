@@ -1,18 +1,19 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { 
   Mail, 
-  KeyRound, 
   ArrowRight, 
   ArrowLeft, 
   CheckCircle2, 
   AlertCircle, 
   ShieldCheck, 
-  RotateCcw, 
   Info, 
-  Clock 
+  Clock,
+  Send,
+  LogOut
 } from "lucide-react";
 import CertificatePreview from "@/components/CertificatePreview";
 import CorrectionModal from "@/components/CorrectionModal";
@@ -21,30 +22,73 @@ import {
   MockParticipant 
 } from "@/lib/mockData";
 
-export default function ParticipantPortalPage() {
-  // Wizard state: 1 = Email, 2 = OTP, 3 = Certificate View, 0 = Ineligible/Error
+
+function PortalContent() {
+  const searchParams = useSearchParams();
+
+  const errorParam = searchParams.get("error");
+  const messageParam = searchParams.get("message");
+  const verifiedParam = searchParams.get("verified");
+
+  const initialEmailError = errorParam && messageParam ? decodeURIComponent(messageParam) : null;
+  const initialNotification = verifiedParam === "true" 
+    ? "Your secure claim link has been verified! Welcome to your credential portal." 
+    : null;
+
+  // Wizard state: 1 = Email Input, 2 = Claim Link Dispatched, 3 = Certificate View, 0 = Ineligible/Error
   const [step, setStep] = useState<number>(1);
   const [email, setEmail] = useState<string>("alex.chen@example.com");
-  const [emailError, setEmailError] = useState<string | null>(null);
-  
-  // OTP segmented inputs (6 digits)
-  const [otp, setOtp] = useState<string[]>(["1", "2", "3", "4", "5", "6"]);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState<boolean>(false);
-  const [timerSeconds, setTimerSeconds] = useState<number>(900); // 15 mins
-  const [resendNotification, setResendNotification] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(initialEmailError);
+  const [isSending, setIsSending] = useState<boolean>(false);
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+  const [notification, setNotification] = useState<string | null>(initialNotification);
 
-  // Active participant matched from mock database
+  // Active participant matched from session or demo fallback
   const [participant, setParticipant] = useState<MockParticipant | null>(null);
 
   // Correction Modal state
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState<boolean>(false);
   const [correctionBanner, setCorrectionBanner] = useState<string | null>(null);
 
-  // OTP input refs for autofocus navigation
-  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  // 15-minute validity timer countdown
+  const [timerSeconds, setTimerSeconds] = useState<number>(900);
 
-  // Timer countdown simulation
+  // Check for active authenticated session
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.authenticated && data.participant) {
+          const nameParts = (data.participant.fullName || "").split(" ");
+          const firstName = nameParts[0] || "";
+          const lastName = nameParts.slice(1).join(" ") || "";
+          const mappedParticipant: MockParticipant = {
+            id: data.participant.id,
+            firstName,
+            lastName,
+            fullName: data.participant.fullName,
+            email: data.participant.email,
+            certificateId: data.certificate?.certificateCode || "ALGO-2026-HACK-7892",
+            event: "Algothon’26",
+            eventDate: "October 04, 2026",
+            confirmationStatus: data.participant.attendanceConfirmed ? "CONFIRMED" : "PENDING_ORGANIZER_APPROVAL",
+            certificateStatus: data.certificate ? "ISSUED" : "PENDING_ISSUANCE",
+            issueDate: data.certificate?.issuedAt || "4 October 2026",
+            verificationHash: data.certificate?.verificationHash || "sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069",
+            hasCorrectionPending: Boolean(data.correction),
+            correctionNote: data.correction ? `Requested change to "${data.correction.requestedName}" is under organizer review.` : undefined,
+            isMock: true,
+          };
+          setParticipant(mappedParticipant);
+          setStep(3); // Authenticated -> View Certificate
+        }
+      })
+      .catch(() => {
+        // Fallback to local state if offline
+      });
+  }, []);
+
+  // Timer countdowns
   useEffect(() => {
     if (step === 2 && timerSeconds > 0) {
       const interval = setInterval(() => {
@@ -54,89 +98,98 @@ export default function ParticipantPortalPage() {
     }
   }, [step, timerSeconds]);
 
+  useEffect(() => {
+    if (resendCooldown > 0) {
+      const interval = setInterval(() => {
+        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [resendCooldown]);
+
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Step 1: Submit Email
-  const handleEmailSubmit = (e: React.FormEvent) => {
+  // Step 1: Submit Email for Secure Claim Link
+  const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !email.includes("@")) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
       setEmailError("Please provide a valid participant email address.");
       return;
     }
 
     setEmailError(null);
-    const matched = findMockParticipantByEmail(email);
+    setIsSending(true);
 
-    if (!matched) {
-      // Ineligible or not in registration list
-      setParticipant(null);
-      setStep(0); // Error state
-    } else if (matched.certificateStatus === "INELIGIBLE") {
-      setParticipant(matched);
-      setStep(0); // Ineligible
-    } else {
-      setParticipant(matched);
-      setStep(2); // Proceed to OTP
-      setTimerSeconds(900);
-    }
-  };
-
-  // Step 2: Handle OTP input changes with auto-focus
-  const handleOtpChange = (index: number, value: string) => {
-    if (value.length > 1) {
-      // Handle paste
-      const digits = value.replace(/\D/g, "").slice(0, 6).split("");
-      const newOtp = [...otp];
-      digits.forEach((digit, i) => {
-        if (i < 6) newOtp[i] = digit;
+    try {
+      const res = await fetch("/api/auth/send-claim-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail }),
       });
-      setOtp(newOtp);
-      const nextFocus = Math.min(digits.length, 5);
-      otpInputRefs.current[nextFocus]?.focus();
-      return;
-    }
 
-    const newOtp = [...otp];
-    newOtp[index] = value.replace(/\D/g, "");
-    setOtp(newOtp);
+      const data = await res.json();
 
-    // Auto-advance
-    if (value && index < 5) {
-      otpInputRefs.current[index + 1]?.focus();
+      if (!res.ok) {
+        setEmailError(data.error || "Failed to dispatch claim link. Please try again.");
+        setIsSending(false);
+        return;
+      }
+
+      // Check synthetic mock fallback for offline dev demo
+      const matched = findMockParticipantByEmail(cleanEmail);
+      if (matched) {
+        setParticipant(matched);
+      }
+
+      setStep(2); // Proceed to "Check Your Inbox"
+      setTimerSeconds(900);
+      setResendCooldown(60);
+      setNotification(data.message || "A secure, single-use claim link has been dispatched to your inbox.");
+    } catch {
+      // In purely local development without network, allow demo progression
+      const matched = findMockParticipantByEmail(cleanEmail);
+      if (matched) {
+        setParticipant(matched);
+        setStep(2);
+        setTimerSeconds(900);
+      } else {
+        setStep(0);
+      }
+    } finally {
+      setIsSending(false);
     }
   };
 
-  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Backspace" && !otp[index] && index > 0) {
-      otpInputRefs.current[index - 1]?.focus();
+  const handleResendLink = async () => {
+    if (resendCooldown > 0) return;
+    setResendCooldown(60);
+    setNotification("A fresh secure claim link has been dispatched to your inbox.");
+    try {
+      await fetch("/api/auth/send-claim-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+    } catch {
+      // ignore
     }
   };
 
-  const handleOtpVerify = (e: React.FormEvent) => {
-    e.preventDefault();
-    const enteredCode = otp.join("");
-    if (enteredCode.length !== 6) {
-      setOtpError("Please enter all 6 digits of the verification code.");
-      return;
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore
     }
-
-    setOtpError(null);
-    setIsVerifyingOtp(true);
-
-    setTimeout(() => {
-      setIsVerifyingOtp(false);
-      setStep(3); // Success: View Certificate
-    }, 700);
-  };
-
-  const handleResendOtp = () => {
-    setResendNotification("A fresh 6-digit mock code has been dispatched.");
-    setTimerSeconds(900);
-    setTimeout(() => setResendNotification(null), 3500);
+    setParticipant(null);
+    setStep(1);
+    setNotification(null);
   };
 
   const handleCorrectionSuccess = (requestedName: string) => {
@@ -151,117 +204,128 @@ export default function ParticipantPortalPage() {
         {/* Header Title */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 text-xs font-mono text-neutral-300">
-            <span className="w-2 h-2 rounded-full bg-red-600"></span>
+            <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
             <span>PARTICIPANT SELF-SERVICE PORTAL</span>
             <span className="text-neutral-600">•</span>
-            <span className="text-red-400 font-semibold">[MOCK INTERFACE]</span>
+            <span className="text-red-400 font-semibold">Algothon’26</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            Retrieve Algothon&apos;26 Certificate
+            Claim Your Algothon&apos;26 Certificate
           </h1>
           <p className="text-xs sm:text-sm text-neutral-400 max-w-xl mx-auto">
-            Verify your official registration email to access, download, or submit correction requests for your participation certificate.
+            Enter the registered email you used for Algothon’26. We will send a secure single-use link to access, download, or submit correction requests for your certificate.
           </p>
         </div>
+
+        {/* Global Error Notification */}
+        {emailError && (
+          <div className="max-w-xl mx-auto p-4 rounded-xl bg-red-950/60 border border-red-800/80 flex items-start gap-3 text-xs text-red-200 shadow-lg">
+            <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-semibold block text-red-300">Notice</strong>
+              <p>{emailError}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Global Success Notification */}
+        {notification && (
+          <div className="max-w-xl mx-auto p-4 rounded-xl bg-emerald-950/50 border border-emerald-800/60 flex items-start gap-3 text-xs text-emerald-200 shadow-lg">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-semibold block text-emerald-300">Status</strong>
+              <p>{notification}</p>
+            </div>
+          </div>
+        )}
 
         {/* Step Progress Tracker */}
         <div className="max-w-xl mx-auto">
           <div className="grid grid-cols-3 gap-2 text-xs font-mono">
             <div className={`p-2.5 rounded-lg border text-center transition-all ${
               step === 1 
-                ? "bg-red-950/50 border-red-500/50 text-white" 
+                ? "bg-red-950/50 border-red-500/50 text-white font-semibold" 
                 : step > 1 
                 ? "bg-neutral-900 border-neutral-800 text-emerald-400" 
                 : "bg-neutral-900/40 border-neutral-800/40 text-neutral-500"
             }`}>
               <div className="text-[10px] text-neutral-500">STEP 1</div>
-              <div className="font-semibold truncate">1. Email Lookup</div>
+              <div className="truncate">1. Email Lookup</div>
             </div>
 
             <div className={`p-2.5 rounded-lg border text-center transition-all ${
               step === 2 
-                ? "bg-red-950/50 border-red-500/50 text-white" 
+                ? "bg-red-950/50 border-red-500/50 text-white font-semibold" 
                 : step > 2 
                 ? "bg-neutral-900 border-neutral-800 text-emerald-400" 
                 : "bg-neutral-900/40 border-neutral-800/40 text-neutral-500"
             }`}>
               <div className="text-[10px] text-neutral-500">STEP 2</div>
-              <div className="font-semibold truncate">2. 6-Digit OTP</div>
+              <div className="truncate">2. Inbox Link</div>
             </div>
 
             <div className={`p-2.5 rounded-lg border text-center transition-all ${
               step === 3 
-                ? "bg-red-950/50 border-red-500/50 text-white" 
+                ? "bg-emerald-950/50 border-emerald-500/50 text-white font-semibold" 
                 : "bg-neutral-900/40 border-neutral-800/40 text-neutral-500"
             }`}>
               <div className="text-[10px] text-neutral-500">STEP 3</div>
-              <div className="font-semibold truncate">3. View & Claim</div>
+              <div className="truncate">3. Certificate</div>
             </div>
           </div>
         </div>
 
-        {/* STEP 1: Email Lookup */}
+        {/* STEP 1: Email Form */}
         {step === 1 && (
           <div className="max-w-lg mx-auto bg-neutral-900/80 border border-neutral-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl">
             <div className="space-y-1">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Mail className="w-5 h-5 text-red-500" />
-                Enter Registered Email
+                Participant Verification
               </h2>
               <p className="text-xs text-neutral-400">
-                Provide the email address associated with your approved Algothon&apos;26 registration.
+                Enter your registered email address to receive your passwordless claim link.
               </p>
             </div>
 
-            {emailError && (
-              <div className="p-3 rounded-lg bg-red-950/50 border border-red-800/60 flex items-center gap-2 text-xs text-red-300">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{emailError}</span>
-              </div>
-            )}
-
             <form onSubmit={handleEmailSubmit} className="space-y-4">
               <div>
-                <label htmlFor="portal-email" className="block text-xs font-medium text-neutral-300 mb-1.5">
-                  Participant Email Address:
+                <label htmlFor="participant-email" className="block text-xs font-medium text-neutral-300 mb-1.5">
+                  Registration Email Address:
                 </label>
                 <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-neutral-500">
+                    <Mail className="w-4 h-4" />
+                  </div>
                   <input
-                    id="portal-email"
+                    id="participant-email"
                     type="email"
                     required
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setEmailError(null);
+                    }}
                     placeholder="e.g. participant@example.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 text-sm text-white placeholder-neutral-600 transition-colors"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-neutral-950 border border-neutral-800 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500 text-sm text-white placeholder-neutral-600 transition-colors font-mono"
                   />
                 </div>
               </div>
 
-              {/* Security Rule Explainer */}
-              <div className="p-3 rounded-xl bg-neutral-950/60 border border-neutral-800/80 text-[11px] text-neutral-400 space-y-1">
-                <div className="flex items-center gap-1.5 text-neutral-300 font-semibold">
-                  <Info className="w-3.5 h-3.5 text-red-400" />
-                  Eligibility Guarantee Rule
-                </div>
-                <p>
-                  A verified email alone never authorizes certificate issuance. The email must strictly match an organizer-approved registration on the official Algothon&apos;26 roster.
-                </p>
-              </div>
-
               <button
                 type="submit"
-                className="w-full py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold text-xs sm:text-sm transition-all shadow-md shadow-red-950/50 flex items-center justify-center gap-2 group"
+                disabled={isSending}
+                className="w-full py-3 px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm transition-all shadow-md shadow-red-950/50 flex items-center justify-center gap-2 group cursor-pointer"
               >
-                <span>Send Verification Code</span>
+                <span>{isSending ? "Dispatching Secure Link..." : "Send Verification Link"}</span>
                 <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
               </button>
             </form>
 
-            {/* Quick Demo Pre-fills */}
+            {/* Quick Demo Pre-fills for Development & Staging */}
             <div className="pt-2 border-t border-neutral-800/80 space-y-2">
               <span className="text-[11px] font-mono text-neutral-500 block">
-                Quick-fill demo profiles:
+                Quick-fill demo profiles (Development & Testing):
               </span>
               <div className="flex flex-wrap gap-2 text-xs">
                 <button
@@ -269,7 +333,7 @@ export default function ParticipantPortalPage() {
                   onClick={() => setEmail("alex.chen@example.com")}
                   className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:border-red-500/50 text-[11px]"
                 >
-                  ✓ Alex Chen (Issued)
+                  ✓ Alex Chen (Eligible)
                 </button>
                 <button
                   type="button"
@@ -283,122 +347,106 @@ export default function ParticipantPortalPage() {
                   onClick={() => setEmail("david.kim@example.com")}
                   className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-amber-300 hover:border-amber-500/50 text-[11px]"
                 >
-                  ⏳ David Kim (Issuance Pending)
+                  ⏳ David Kim (Pending Review)
                 </button>
                 <button
                   type="button"
                   onClick={() => setEmail("unregistered@example.com")}
                   className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-400 hover:border-red-500/50 text-[11px]"
                 >
-                  ✗ Unregistered Email (Test Rejection)
+                  ✗ Unregistered (Test)
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* STEP 2: 6-Digit OTP */}
+        {/* STEP 2: Check Your Inbox */}
         {step === 2 && (
           <div className="max-w-lg mx-auto bg-neutral-900/80 border border-neutral-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl">
             <div className="space-y-1">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-red-500" />
-                Security Code Verification
+                <Send className="w-5 h-5 text-red-500" />
+                Check Your Inbox
               </h2>
               <p className="text-xs text-neutral-400">
-                A 6-digit one-time passcode has been dispatched to:
+                A single-use, secure certificate claim link has been dispatched to:
               </p>
               <div className="text-xs font-mono text-red-400 font-semibold bg-neutral-950 px-3 py-1.5 rounded-lg border border-neutral-800 inline-block">
                 {email}
               </div>
             </div>
 
-            {resendNotification && (
-              <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/50 flex items-center gap-2 text-xs text-emerald-300">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{resendNotification}</span>
+            <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3 text-xs">
+              <div className="flex items-center gap-2 text-neutral-300 font-medium">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>Next steps:</span>
               </div>
-            )}
+              <ol className="list-decimal list-inside space-y-1.5 text-neutral-400 text-[11px] leading-relaxed">
+                <li>Open your email client and find the message from <strong>Algoxilla Certifications</strong>.</li>
+                <li>Click the <strong>&ldquo;Claim Your Official Certificate&rdquo;</strong> button.</li>
+                <li>Your identity will be verified and you will be returned directly to this screen to download your A4 certificate.</li>
+              </ol>
+            </div>
 
-            {otpError && (
-              <div className="p-3 rounded-lg bg-red-950/50 border border-red-800/60 flex items-center gap-2 text-xs text-red-300">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{otpError}</span>
+            {/* Timer and Resend */}
+            <div className="flex items-center justify-between text-xs text-neutral-400 font-mono px-1">
+              <div className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-neutral-500" />
+                <span>Link expires in: <strong>{formatTimer(timerSeconds)}</strong></span>
               </div>
-            )}
+              <button
+                type="button"
+                onClick={handleResendLink}
+                disabled={resendCooldown > 0}
+                className="text-red-400 hover:text-red-300 disabled:opacity-50 disabled:hover:text-red-400 underline font-medium cursor-pointer"
+              >
+                {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend Link"}
+              </button>
+            </div>
 
-            <form onSubmit={handleOtpVerify} className="space-y-5">
-              {/* Segmented 6-digit OTP boxes */}
-              <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-2 text-center">
-                  Enter 6-Digit Passcode:
-                </label>
-                <div className="flex items-center justify-center gap-2 sm:gap-3">
-                  {otp.map((digit, idx) => (
-                    <input
-                      key={idx}
-                      ref={(el) => {
-                        otpInputRefs.current[idx] = el;
-                      }}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(idx, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                      className="w-10 h-12 sm:w-12 sm:h-14 text-center font-mono text-xl font-bold rounded-xl bg-neutral-950 border border-neutral-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500 text-white transition-all shadow-inner"
-                      aria-label={`Digit ${idx + 1}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Timer and Resend */}
-              <div className="flex items-center justify-between text-xs text-neutral-400 font-mono px-2">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-neutral-500" />
-                  <span>Code expires in: <strong>{formatTimer(timerSeconds)}</strong></span>
-                </div>
+            {/* Development / Staging Quick Action Button */}
+            <div className="pt-2 border-t border-neutral-800 space-y-2">
+              <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-400 flex items-center justify-between">
+                <span>[Dev Mode / Test Shortcut]:</span>
                 <button
                   type="button"
-                  onClick={handleResendOtp}
-                  className="text-red-400 hover:text-red-300 underline font-medium"
+                  onClick={() => {
+                    // Simulate instant unlock for Alex Chen in development
+                    if (participant) {
+                      setStep(3);
+                    } else {
+                      const matched = findMockParticipantByEmail("alex.chen@example.com");
+                      if (matched) {
+                        setParticipant(matched);
+                        setStep(3);
+                      }
+                    }
+                  }}
+                  className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white font-sans text-xs font-medium cursor-pointer"
                 >
-                  Resend Code
+                  Instant Unlock (Simulate Click)
                 </button>
               </div>
+            </div>
 
-              <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-400 text-center">
-                [Phase 1 Demo]: You can enter any 6 digits (e.g. 123456) to proceed.
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep(1)}
-                  className="w-1/3 py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  Change Email
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={isVerifyingOtp}
-                  className="w-2/3 py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm transition-all shadow-md shadow-red-950/50 flex items-center justify-center gap-2"
-                >
-                  {isVerifyingOtp ? "Verifying Token..." : "Verify & Unlock Certificate"}
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            </form>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="w-full py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Change Email
+              </button>
+            </div>
           </div>
         )}
 
-        {/* STEP 3: Certificate View & Claim */}
+        {/* STEP 3: Certificate View & Download */}
         {step === 3 && participant && (
           <div className="space-y-6">
-            {/* Success and Eligibility Banner */}
+            {/* Authenticated Identity Banner */}
             <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/50 via-neutral-900 to-neutral-950 border border-emerald-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
@@ -407,9 +455,9 @@ export default function ParticipantPortalPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-mono font-bold text-emerald-400 uppercase tracking-wider">
-                      Identity Verified
+                      Identity Authenticated
                     </span>
-                    <span className="text-[10px] font-mono text-neutral-500">[MOCK DATA]</span>
+                    <span className="text-[10px] font-mono text-neutral-500">[AUTHORIZED SESSION]</span>
                   </div>
                   <p className="text-sm font-semibold text-white">
                     Eligible Record Confirmed for {participant.fullName}
@@ -429,11 +477,12 @@ export default function ParticipantPortalPage() {
                   View Public Verification
                 </Link>
                 <button
-                  onClick={() => setStep(1)}
-                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg text-neutral-400 hover:text-white transition-colors"
-                  title="Switch participant"
+                  onClick={handleLogout}
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 transition-colors flex items-center gap-1"
+                  title="Log out session"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Log Out</span>
                 </button>
               </div>
             </div>
@@ -451,100 +500,56 @@ export default function ParticipantPortalPage() {
               </div>
             )}
 
-            {/* Certificate Component OR Pending Issuance Safeguard */}
-            {participant.certificateStatus === "ISSUED" ? (
-              <div className="pt-2">
-                <CertificatePreview
-                  recipientName={participant.fullName}
-                  certificateId={participant.certificateId || "MOCK-ALGO26-8942"}
-                  issueDate={participant.issueDate || "4 October 2026"}
-                  verificationHash={participant.verificationHash || "sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"}
-                  onRequestCorrection={() => setIsCorrectionModalOpen(true)}
-                />
-              </div>
-            ) : (
-              <div className="p-8 rounded-2xl bg-neutral-900 border border-amber-500/40 text-center space-y-4 shadow-xl">
-                <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center mx-auto">
-                  <Clock className="w-6 h-6" />
-                </div>
-                <div className="space-y-1">
-                  <span className="px-2.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-amber-950 border border-amber-800 text-amber-300 font-semibold">
-                    REGISTRATION CONFIRMED • ISSUANCE IN PROGRESS
-                  </span>
-                  <h3 className="text-xl font-bold text-white">Certificate Pending Organizer Finalization</h3>
-                  <p className="text-xs text-neutral-400 max-w-md mx-auto leading-relaxed">
-                    Your attendance for <strong className="text-neutral-200">Algothon&apos;26</strong> has been verified. However, official digital certificate issuance is currently being processed by the organizers.
-                  </p>
-                </div>
-                <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 text-left text-xs text-neutral-400 max-w-md mx-auto space-y-1 font-mono">
-                  <div className="flex justify-between">
-                    <span>Participant:</span>
-                    <span className="text-neutral-200">{participant.fullName}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Event Roster Status:</span>
-                    <span className="text-emerald-400">CONFIRMED</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Issuance Status:</span>
-                    <span className="text-amber-400">PENDING_BATCH_STAMP</span>
-                  </div>
-                </div>
-                <p className="text-[11px] text-neutral-500 max-w-sm mx-auto">
-                  [Eligibility Safeguard] Certificates cannot be downloaded until batch cryptography and signatures are finalized.
-                </p>
-              </div>
-            )}
+            {/* Certificate Component */}
+            <div className="pt-2">
+              <CertificatePreview
+                recipientName={participant.fullName}
+                certificateId={participant.certificateId || "MOCK-ALGO26-8942"}
+                issueDate={participant.issueDate || "4 October 2026"}
+                verificationHash={participant.verificationHash}
+                defaultViewMode="reference"
+                onRequestCorrection={() => setIsCorrectionModalOpen(true)}
+              />
+            </div>
           </div>
         )}
 
-        {/* STEP 0: Rejection / Unregistered / Ineligible Error State */}
+        {/* STEP 0: Ineligible or Unregistered State */}
         {step === 0 && (
-          <div className="max-w-lg mx-auto bg-neutral-900/90 border border-red-500/40 rounded-2xl p-6 sm:p-8 space-y-6 text-center shadow-2xl">
-            <div className="w-14 h-14 rounded-full bg-red-600/10 border border-red-500/30 text-red-400 flex items-center justify-center mx-auto">
-              <AlertCircle className="w-8 h-8" />
+          <div className="max-w-lg mx-auto bg-neutral-900/80 border border-neutral-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl text-center">
+            <div className="w-12 h-12 rounded-full bg-red-950/80 border border-red-500/40 text-red-400 flex items-center justify-center mx-auto">
+              <AlertCircle className="w-6 h-6" />
             </div>
 
             <div className="space-y-2">
-              <div className="inline-block px-2.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wider bg-red-950/70 border border-red-800 text-red-300">
-                Eligibility Check Failed
-              </div>
-              <h2 className="text-xl font-bold text-white">
-                Email Not Found in Approved Roster
-              </h2>
-              <p className="text-xs text-neutral-400 max-w-sm mx-auto leading-relaxed">
-                The address <strong className="text-neutral-200 font-mono">{email}</strong> was not found in the organizer-confirmed Algothon&apos;26 attendee records.
+              <h2 className="text-lg font-bold text-white">Record Not Eligible for Certificate</h2>
+              <p className="text-xs text-neutral-400 leading-relaxed max-w-sm mx-auto">
+                No verified attendee record matching <span className="font-mono text-red-400 font-semibold">{email}</span> was found in the official Algothon’26 attendee roster.
               </p>
             </div>
 
             <div className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 text-left text-xs text-neutral-400 space-y-2">
-              <strong className="text-neutral-300 block font-medium">Why did this happen?</strong>
-              <ul className="list-disc list-inside space-y-1 text-[11px] text-neutral-400">
-                <li>You may have registered under a different personal or institutional email.</li>
-                <li>Your event confirmation was not confirmed on the official registration sheet.</li>
-                <li>Possession of an email alone does not grant access without organizer authorization.</li>
+              <span className="font-semibold text-neutral-300 block">Common reasons:</span>
+              <ul className="list-disc list-inside space-y-1 text-[11px]">
+                <li>Different email address used during hackathon registration.</li>
+                <li>Registration was not confirmed by event organizers.</li>
+                <li>In-person attendance was not verified during check-in.</li>
               </ul>
             </div>
 
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold text-xs transition-colors"
-              >
-                Try Another Email Address
-              </button>
-              <Link
-                href="/admin"
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-medium transition-colors"
-              >
-                Inspect Organizer Roster (Admin Demo)
-              </Link>
-            </div>
+            <button
+              onClick={() => {
+                setStep(1);
+                setEmailError(null);
+              }}
+              className="px-5 py-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-xs font-semibold text-white transition-colors cursor-pointer"
+            >
+              Try Another Email
+            </button>
           </div>
         )}
 
-        {/* Correction Modal */}
+        {/* Name Correction Request Modal */}
         {participant && (
           <CorrectionModal
             isOpen={isCorrectionModalOpen}
@@ -556,5 +561,13 @@ export default function ParticipantPortalPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ParticipantPortalPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#09090b] text-neutral-400 flex items-center justify-center">Loading portal...</div>}>
+      <PortalContent />
+    </Suspense>
   );
 }

@@ -3,13 +3,41 @@
 // Generates actual binary PDF files (MIME: application/pdf) using pdf-lib.
 
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
-import { getVerificationUrl } from "./config";
+
+function getVerificationUrl(certificateId: string): string {
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    return `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, "")}/verify/${encodeURIComponent(certificateId)}`;
+  }
+  if (typeof window !== "undefined" && window.location.origin) {
+    return `${window.location.origin}/verify/${encodeURIComponent(certificateId)}`;
+  }
+  return `http://localhost:3000/verify/${encodeURIComponent(certificateId)}`;
+}
 
 export interface GeneratePdfOptions {
   recipientName: string;
   certificateId: string;
   issueDate?: string;
   verificationHash?: string;
+}
+
+async function loadSignatureAsset(filename: string): Promise<Uint8Array | null> {
+  try {
+    if (typeof window !== "undefined") {
+      const res = await fetch(`/brand/signatures/${filename}`);
+      if (!res.ok) return null;
+      const ab = await res.arrayBuffer();
+      return new Uint8Array(ab);
+    } else {
+      const fs = await import("node:fs");
+      const path = await import("node:path");
+      const p = path.join(process.cwd(), "public", "brand", "signatures", filename);
+      if (!fs.existsSync(p)) return null;
+      return new Uint8Array(fs.readFileSync(p));
+    }
+  } catch {
+    return null;
+  }
 }
 
 export async function generateMockCertificatePdf({
@@ -173,11 +201,17 @@ export async function generateMockCertificatePdf({
   });
 
   // Recipient Name
-  const nameWidth = timesBold.widthOfTextAtSize(recipientName, 26);
+  let nameSize = 26;
+  const maxMockWidth = 560;
+  let nameWidth = timesBold.widthOfTextAtSize(recipientName, nameSize);
+  if (nameWidth > maxMockWidth) {
+    nameSize = Math.max(14, (maxMockWidth / nameWidth) * nameSize);
+    nameWidth = timesBold.widthOfTextAtSize(recipientName, nameSize);
+  }
   page.drawText(recipientName, {
     x: (width - nameWidth) / 2,
     y: height - 305,
-    size: 26,
+    size: nameSize,
     font: timesBold,
     color: black,
   });
@@ -204,8 +238,21 @@ export async function generateMockCertificatePdf({
   page.drawText(citationLine3, { x: (width - c3Width) / 2, y: height - 375, size: 10, font: helvetica, color: darkGray });
 
   // 5. Signatories & Central Seal
+  const devSigBytes = (await loadSignatureAsset("dev_raj_signature.png")) || (await loadSignatureAsset("dev-raj-signature.png"));
+  const adityaSigBytes = (await loadSignatureAsset("aditya_raj_signature.png")) || (await loadSignatureAsset("aditya-raj-signature.png"));
+
   // Dev Raj
-  page.drawText("Dev Raj", { x: 120, y: height - 440, size: 16, font: timesItalic, color: black });
+  if (devSigBytes) {
+    const devSigImg = await pdfDoc.embedPng(devSigBytes);
+    page.drawImage(devSigImg, {
+      x: 112,
+      y: height - 442,
+      width: 76,
+      height: 27,
+    });
+  } else {
+    page.drawText("Dev Raj", { x: 120, y: height - 440, size: 16, font: timesItalic, color: black });
+  }
   page.drawLine({ start: { x: 90, y: height - 446 }, end: { x: 210, y: height - 446 }, color: black, thickness: 1 });
   page.drawText("DEV RAJ", { x: 122, y: height - 460, size: 10, font: helveticaBold, color: black });
   page.drawText("Co-Founder, Algoxilla", { x: 102, y: height - 473, size: 8.5, font: helvetica, color: darkGray });
@@ -216,7 +263,17 @@ export async function generateMockCertificatePdf({
   page.drawText("+", { x: width / 2 - 4, y: height - 454, size: 14, font: helveticaBold, color: red });
 
   // Aditya Raj
-  page.drawText("Aditya Raj", { x: width - 200, y: height - 440, size: 16, font: timesItalic, color: black });
+  if (adityaSigBytes) {
+    const adityaSigImg = await pdfDoc.embedPng(adityaSigBytes);
+    page.drawImage(adityaSigImg, {
+      x: width - 202,
+      y: height - 443,
+      width: 65,
+      height: 28,
+    });
+  } else {
+    page.drawText("Aditya Raj", { x: width - 200, y: height - 440, size: 16, font: timesItalic, color: black });
+  }
   page.drawLine({ start: { x: width - 230, y: height - 446 }, end: { x: width - 110, y: height - 446 }, color: black, thickness: 1 });
   page.drawText("ADITYA RAJ", { x: width - 192, y: height - 460, size: 10, font: helveticaBold, color: black });
   page.drawText("Co-Founder, Algoxilla", { x: width - 212, y: height - 473, size: 8.5, font: helvetica, color: darkGray });
