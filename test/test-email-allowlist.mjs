@@ -48,6 +48,7 @@ function loadLocalEnv() {
 loadLocalEnv();
 
 // Strictly enforce test context
+process.env.APP_LIVE = "false";
 process.env.NEXT_PUBLIC_APP_LIVE = "false";
 
 import { 

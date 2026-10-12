@@ -43,9 +43,9 @@ function loadLocalEnv() {
 
 loadLocalEnv();
 
-const isLive = process.env.NEXT_PUBLIC_APP_LIVE === "true";
+const isLive = process.env.APP_LIVE === "true" || process.env.NEXT_PUBLIC_APP_LIVE === "true";
 if (isLive) {
-  console.error("FATAL: Seeding synthetic participant is strictly forbidden when NEXT_PUBLIC_APP_LIVE is true.");
+  console.error("FATAL: Seeding synthetic participant is strictly forbidden when APP_LIVE is true.");
   process.exit(1);
 }
 

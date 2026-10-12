@@ -25,7 +25,7 @@ for (const line of lines) {
 const brevoKeyPresent = Boolean(env.BREVO_API_KEY && env.BREVO_API_KEY.trim().length > 0);
 const brevoKeyIsPlaceholder = Boolean(env.BREVO_API_KEY && env.BREVO_API_KEY.includes("replace-with"));
 const emailFromPresent = Boolean(env.EMAIL_FROM && env.EMAIL_FROM.trim().length > 0);
-const appLiveIsFalse = env.NEXT_PUBLIC_APP_LIVE === "false";
+const appLiveIsFalse = env.APP_LIVE === "false" || env.NEXT_PUBLIC_APP_LIVE === "false";
 
 const rawAllowlist = env.TEST_EMAIL_ALLOWLIST || "";
 const allowlistEntries = rawAllowlist.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);

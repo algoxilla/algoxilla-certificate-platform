@@ -39,3 +39,17 @@ export function getVerificationUrl(
   const base = customBaseUrl ? customBaseUrl.replace(/\/+$/, "") : getAppBaseUrl(preferPublicDomain);
   return `${base}/verify/${encodeURIComponent(certificateId)}`;
 }
+
+/**
+ * Server-only live production guard switch.
+ * Evaluates whether the application is running in live production mode.
+ * Defaults strictly to false unless APP_LIVE is explicitly 'true'.
+ * Backwards-compatible with legacy NEXT_PUBLIC_APP_LIVE if APP_LIVE is not defined.
+ */
+export function isAppLive(): boolean {
+  if (process.env.APP_LIVE !== undefined) {
+    return process.env.APP_LIVE === "true";
+  }
+  return process.env.NEXT_PUBLIC_APP_LIVE === "true";
+}
+

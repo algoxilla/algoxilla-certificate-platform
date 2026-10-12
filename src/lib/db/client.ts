@@ -24,6 +24,7 @@ let supabaseInstance: SupabaseCertificateRepository | null = null;
 export function isProductionMode(): boolean {
   return (
     process.env.NODE_ENV === "production" ||
+    process.env.APP_LIVE === "true" ||
     process.env.NEXT_PUBLIC_APP_LIVE === "true"
   );
 }
@@ -32,7 +33,7 @@ export function isProductionMode(): boolean {
  * Returns the active CertificateRepository.
  * 
  * Safety Rule 9:
- * If the application is running in production mode (NODE_ENV=production or NEXT_PUBLIC_APP_LIVE=true)
+ * If the application is running in production mode (NODE_ENV=production or APP_LIVE=true)
  * and no persistent production database (DATABASE_URL or Supabase) is configured, this function THROWS
  * a DatabaseUnavailableError instead of silently falling back to mock or ephemeral data.
  */

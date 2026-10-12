@@ -272,6 +272,7 @@ console.log("\n--- Suite 6: Rule 9 Fail-Closed Production Guard ---");
 {
   // Save current env
   const origNodeEnv = process.env.NODE_ENV;
+  const origAppLive = process.env.APP_LIVE;
   const origLive = process.env.NEXT_PUBLIC_APP_LIVE;
   const origDbUrl = process.env.DATABASE_URL;
   const origDirectUrl = process.env.DIRECT_URL;
@@ -281,6 +282,7 @@ console.log("\n--- Suite 6: Rule 9 Fail-Closed Production Guard ---");
 
   try {
     // Simulate production mode without DATABASE_URL or Supabase credentials
+    process.env.APP_LIVE = "true";
     process.env.NEXT_PUBLIC_APP_LIVE = "true";
     delete process.env.DATABASE_URL;
     delete process.env.DIRECT_URL;
@@ -305,7 +307,8 @@ console.log("\n--- Suite 6: Rule 9 Fail-Closed Production Guard ---");
   } finally {
     // Restore env
     process.env.NODE_ENV = origNodeEnv;
-    process.env.NEXT_PUBLIC_APP_LIVE = origLive;
+    if (origAppLive !== undefined) process.env.APP_LIVE = origAppLive; else delete process.env.APP_LIVE;
+    if (origLive !== undefined) process.env.NEXT_PUBLIC_APP_LIVE = origLive; else delete process.env.NEXT_PUBLIC_APP_LIVE;
     if (origDbUrl) process.env.DATABASE_URL = origDbUrl; else delete process.env.DATABASE_URL;
     if (origDirectUrl) process.env.DIRECT_URL = origDirectUrl; else delete process.env.DIRECT_URL;
     if (origSbUrl) process.env.NEXT_PUBLIC_SUPABASE_URL = origSbUrl; else delete process.env.NEXT_PUBLIC_SUPABASE_URL;

@@ -221,7 +221,10 @@ export async function generateOfficialCertificatePdf({
     color: rgb(0.4, 0.4, 0.4),
   });
 
-  const isDomainLive = process.env.NEXT_PUBLIC_APP_LIVE === "true";
+  const isDomainLive =
+    process.env.APP_LIVE !== undefined
+      ? process.env.APP_LIVE === "true"
+      : process.env.NEXT_PUBLIC_APP_LIVE === "true";
   if (isDevUrl) {
     page.drawText("[DEV TEST ARTIFACT]", {
       x: badgeX + 48,

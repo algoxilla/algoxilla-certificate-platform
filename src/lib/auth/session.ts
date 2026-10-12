@@ -78,7 +78,10 @@ export function verifySessionToken(rawToken: string | null | undefined): Session
  * Generates the Set-Cookie string for establishing an authenticated session.
  */
 export function serializeSessionCookie(token: string): string {
-  const isProd = process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_APP_LIVE === "true";
+  const isProd =
+    process.env.NODE_ENV === "production" ||
+    process.env.APP_LIVE === "true" ||
+    process.env.NEXT_PUBLIC_APP_LIVE === "true";
   const secureFlag = isProd ? "; Secure" : "";
   return `${SESSION_COOKIE_NAME}=${token}; Path=/; Max-Age=${SESSION_DURATION_SECONDS}; HttpOnly; SameSite=Lax${secureFlag}`;
 }
@@ -87,7 +90,10 @@ export function serializeSessionCookie(token: string): string {
  * Generates the Set-Cookie string for clearing/logging out a session.
  */
 export function serializeLogoutCookie(): string {
-  const isProd = process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_APP_LIVE === "true";
+  const isProd =
+    process.env.NODE_ENV === "production" ||
+    process.env.APP_LIVE === "true" ||
+    process.env.NEXT_PUBLIC_APP_LIVE === "true";
   const secureFlag = isProd ? "; Secure" : "";
   return `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secureFlag}`;
 }

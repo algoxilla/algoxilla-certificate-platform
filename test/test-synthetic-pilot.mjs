@@ -81,7 +81,7 @@ async function runSyntheticPilot() {
   console.log("         ALGOXILLA CERTIFICATE PLATFORM — SYNTHETIC PARTICIPANT PILOT           ");
   console.log("================================================================================\n");
   console.log(`Target Base URL:       ${baseUrl}`);
-  console.log(`Global Live Flag:      NEXT_PUBLIC_APP_LIVE = ${process.env.NEXT_PUBLIC_APP_LIVE}`);
+  console.log(`Global Live Flag:      APP_LIVE = ${process.env.APP_LIVE ?? process.env.NEXT_PUBLIC_APP_LIVE}`);
   console.log(`Database Connection:   Configured via Supabase PostgreSQL (SSL enabled)\n`);
 
   await adminClient.connect();
@@ -776,9 +776,10 @@ async function runSyntheticPilot() {
     console.log("✓ 10A Passed: brevoService safety guard interceptor unconditionally blocks 100% of real emails");
 
     // 10B. Global Live Flag Verification
-    const isLive = process.env.NEXT_PUBLIC_APP_LIVE === "true";
-    assert.strictEqual(isLive, false, "NEXT_PUBLIC_APP_LIVE must strictly be false in staging pilot");
-    console.log(`✓ 10B Passed: Verified process.env.NEXT_PUBLIC_APP_LIVE = ${process.env.NEXT_PUBLIC_APP_LIVE} (strictly false)`);
+    const rawLive = process.env.APP_LIVE ?? process.env.NEXT_PUBLIC_APP_LIVE;
+    const isLive = rawLive === "true";
+    assert.strictEqual(isLive, false, "APP_LIVE must strictly be false in staging pilot");
+    console.log(`✓ 10B Passed: Verified process.env.APP_LIVE = ${rawLive} (strictly false)`);
 
     // 10C. Database Participant Directory Audit (Zero Real Participants in Supabase)
     const allParticipantsRes = await adminClient.query(`SELECT email FROM participants;`);

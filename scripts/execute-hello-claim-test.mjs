@@ -48,11 +48,11 @@ async function run() {
   console.log("================================================================================\n");
 
   // 1. Safety Checks
-  const isLive = process.env.NEXT_PUBLIC_APP_LIVE === "true";
-  const appLiveVal = process.env.NEXT_PUBLIC_APP_LIVE;
-  console.log(`[Safety Check 1] NEXT_PUBLIC_APP_LIVE = ${appLiveVal}`);
+  const appLiveVal = process.env.APP_LIVE ?? process.env.NEXT_PUBLIC_APP_LIVE;
+  const isLive = appLiveVal === "true";
+  console.log(`[Safety Check 1] APP_LIVE = ${appLiveVal}`);
   if (isLive || appLiveVal !== "false") {
-    console.error("FATAL: NEXT_PUBLIC_APP_LIVE must be explicitly 'false'.");
+    console.error("FATAL: APP_LIVE must be explicitly 'false'.");
     process.exit(1);
   }
 

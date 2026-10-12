@@ -8,7 +8,7 @@ import { generateClaimEmailContent } from "./template.ts";
 const BREVO_API_ENDPOINT = "https://api.brevo.com/v3/smtp/email";
 
 /**
- * Designated staging & test recipient inboxes permitted when NEXT_PUBLIC_APP_LIVE=false.
+ * Designated staging & test recipient inboxes permitted when APP_LIVE=false.
  * Substrings (like "test") or arbitrary domain matches are strictly NOT permitted.
  * Only exact lowercase matches against this designated allowlist are allowed.
  */
@@ -117,7 +117,9 @@ export class BrevoEmailService {
     const { subject, htmlContent, textContent } = generateClaimEmailContent(options);
 
     const targetEmail = options.toEmail.trim().toLowerCase();
-    const isLive = process.env.NEXT_PUBLIC_APP_LIVE === "true";
+    const isLive = process.env.APP_LIVE !== undefined 
+      ? process.env.APP_LIVE === "true" 
+      : process.env.NEXT_PUBLIC_APP_LIVE === "true";
 
     // CRITICAL SAFETY GUARD: When live mode is false, ONLY allowlisted designated test inboxes are permitted.
     // Every other recipient is suppressed without a network request, even if their address contains "test".
@@ -125,7 +127,7 @@ export class BrevoEmailService {
       const isAllowlisted = this.isRecipientAllowlisted(targetEmail);
       if (!isAllowlisted) {
         console.warn(
-          `[SAFETY GUARD] Suppressed Brevo dispatch to non-allowlisted email "${targetEmail}" because NEXT_PUBLIC_APP_LIVE is false.`
+          `[SAFETY GUARD] Suppressed Brevo dispatch to non-allowlisted email "${targetEmail}" because APP_LIVE is false.`
         );
         return {
           success: true,
