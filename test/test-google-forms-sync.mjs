@@ -24,6 +24,7 @@ import {
   verifyWebhookSecret,
   evaluateGoogleFormsDryRun,
 } from "../src/lib/integrations/googleForms.ts";
+import { canonicalizeUrl, getAppBaseUrl, getVerificationUrl } from "../src/lib/config.ts";
 
 function loadLocalEnv() {
   const candidateFiles = [".env.local", ".env"];
@@ -563,8 +564,67 @@ async function runTests() {
     }
     console.log("✅ Passed Test 14: Google Sheets trigger payload normalized and handled idempotently with attendance=0.");
 
+    // -------------------------------------------------------------------------
+    // TEST 15: Multi-Name Prioritization (College/Team Name vs Full Name)
+    // -------------------------------------------------------------------------
+    console.log("\n--- Test 15: Multi-Name Prioritization (College/Team Name vs Full Name) ---");
+    const multiNamePayload = {
+      responseId: "GF-TEST-MULTINAME-001",
+      namedValues: {
+        "College Name": ["Delhi Technological University"],
+        "Team Name": ["Algoxilla Hackers"],
+        "Full Name": ["Siddharth Sharma"],
+        "Email Address": ["siddharth.sharma@algoxilla.test"],
+        "Phone Number": ["+919876543210"],
+        "Timestamp": ["10/15/2026 14:00:00"],
+      },
+    };
+    const multiNorm = validateAndNormalizeSubmission(multiNamePayload);
+    assert.strictEqual(multiNorm.valid, true, "Payload should be valid");
+    assert.strictEqual(
+      multiNorm.submission?.fullName,
+      "Siddharth Sharma",
+      "Full Name must take priority over College Name and Team Name"
+    );
+    assert.strictEqual(
+      multiNorm.submission?.email,
+      "siddharth.sharma@algoxilla.test",
+      "Email must be extracted accurately"
+    );
+    assert.strictEqual(
+      multiNorm.submission?.phone,
+      "'+919876543210",
+      "Phone must be sanitized against formula injection"
+    );
+    console.log("✅ Passed Test 15: Multi-name prioritization accurately extracted participant name over college/team.");
+
+    // -------------------------------------------------------------------------
+    // TEST 16: Verification URL Canonicalization & Preview Guard
+    // -------------------------------------------------------------------------
+    console.log("\n--- Test 16: Verification URL Canonicalization & Preview Guard ---");
+    const previewUrl = "https://algoxilla-certificate-platform-1-of4b9z56r.vercel.app";
+    const canonicalized = canonicalizeUrl(previewUrl);
+    assert.strictEqual(
+      canonicalized,
+      "https://algoxilla-certificate-platform-1.vercel.app",
+      "Preview hash URL must be canonicalized to main production URL"
+    );
+    const unverifiedDnsUrl = "https://verify.algoxilla.com";
+    assert.strictEqual(
+      canonicalizeUrl(unverifiedDnsUrl),
+      "https://algoxilla-certificate-platform-1.vercel.app",
+      "Unverified DNS hostname must resolve to canonical production URL"
+    );
+    const generatedUrl = getVerificationUrl("ALGO-TEST-1234", true, previewUrl);
+    assert.strictEqual(
+      generatedUrl,
+      "https://algoxilla-certificate-platform-1.vercel.app/verify/ALGO-TEST-1234",
+      "Verification QR link must use canonical production base"
+    );
+    console.log("✅ Passed Test 16: Verification URL canonicalization and preview guard verified.");
+
     console.log("\n=================================================");
-    console.log("   ALL 14 GOOGLE FORMS INTEGRATION TESTS PASSED   ");
+    console.log("   ALL 16 GOOGLE FORMS INTEGRATION TESTS PASSED   ");
     console.log("=================================================\n");
   } finally {
     await cleanupSyntheticTestData();

@@ -2,25 +2,38 @@
 // Supports environment-based canonical URLs, configurable public verification base URLs,
 // and safe fallbacks without assuming unverified DNS hostnames.
 
+export function canonicalizeUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  // Canonicalize ephemeral Vercel preview deployment hashes for this project to stable canonical production URL
+  if (/^https:\/\/algoxilla-certificate-platform-1-[a-z0-9]+(-[a-z0-9]+)?\.vercel\.app$/i.test(trimmed)) {
+    return "https://algoxilla-certificate-platform-1.vercel.app";
+  }
+  // Canonicalize legacy or unverified verify.algoxilla.com (which lacks DNS records) to active production URL
+  if (/^https?:\/\/verify\.algoxilla\.com$/i.test(trimmed)) {
+    return "https://algoxilla-certificate-platform-1.vercel.app";
+  }
+  return trimmed;
+}
+
 export function getAppBaseUrl(preferPublicDomain = false): string {
   // 1. Explicit verification URL configuration takes highest precedence for QR codes
   if (process.env.NEXT_PUBLIC_VERIFY_BASE_URL) {
-    return process.env.NEXT_PUBLIC_VERIFY_BASE_URL.replace(/\/+$/, "");
+    return canonicalizeUrl(process.env.NEXT_PUBLIC_VERIFY_BASE_URL);
   }
 
   // 2. Configured public application URL (e.g. staging or production origin)
   if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, "");
+    return canonicalizeUrl(process.env.NEXT_PUBLIC_APP_URL);
   }
 
   // 3. Browser-side runtime window origin (if executed on client)
   if (!preferPublicDomain && typeof window !== "undefined" && window.location.origin) {
-    return window.location.origin;
+    return canonicalizeUrl(window.location.origin);
   }
 
   // 4. Default public canonical domain when preferPublicDomain is true
   if (preferPublicDomain) {
-    return "https://verify.algoxilla.com";
+    return "https://algoxilla-certificate-platform-1.vercel.app";
   }
 
   // 5. Safe local development / staging fallback
@@ -36,7 +49,7 @@ export function getVerificationUrl(
   preferPublicDomain = false,
   customBaseUrl?: string
 ): string {
-  const base = customBaseUrl ? customBaseUrl.replace(/\/+$/, "") : getAppBaseUrl(preferPublicDomain);
+  const base = customBaseUrl ? canonicalizeUrl(customBaseUrl) : getAppBaseUrl(preferPublicDomain);
   return `${base}/verify/${encodeURIComponent(certificateId)}`;
 }
 

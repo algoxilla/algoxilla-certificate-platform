@@ -59,6 +59,72 @@ function getConfig() {
 }
 
 /**
+ * Prioritizes participant full name over non-participant names (e.g. college/team)
+ */
+function extractCandidateFields(answersDict) {
+  var EXCLUDE_NAME_WORDS = [
+    "college", "institute", "institution", "university", "school",
+    "team", "organization", "company", "club", "dept", "department",
+    "project", "guide", "mentor", "parent", "father", "mother"
+  ];
+  var bestName = { val: "", score: 0 };
+  var bestEmail = { val: "", score: 0 };
+  var bestPhone = { val: "", score: 0 };
+  var bestTimestamp = { val: "", score: 0 };
+
+  for (var key in answersDict) {
+    var val = answersDict[key];
+    var valStr = Array.isArray(val) ? val.join(", ").trim() : String(val || "").trim();
+    if (!valStr) continue;
+
+    var lower = key.toLowerCase().trim();
+
+    // Email scoring
+    var emailScore = 0;
+    if (lower === "email address" || lower === "email" || lower === "email id") emailScore = 100;
+    else if (lower.indexOf("participant") !== -1 && lower.indexOf("email") !== -1) emailScore = 95;
+    else if (lower.indexOf("email") !== -1) emailScore = 90;
+    else if (lower.indexOf("mail") !== -1) emailScore = 70;
+    if (emailScore > bestEmail.score) bestEmail = { val: valStr, score: emailScore };
+
+    // Name scoring: prioritize full name over college/team
+    var isExcluded = EXCLUDE_NAME_WORDS.some(function(w) { return lower.indexOf(w) !== -1; });
+    var nameScore = 0;
+    if (!isExcluded) {
+      if (lower === "full name" || lower === "fullname" || lower === "full_name") nameScore = 100;
+      else if (lower === "name of participant" || lower === "participant name" || lower === "student name" || lower === "candidate name" || lower === "applicant name" || lower === "registered name") nameScore = 95;
+      else if (lower === "your name" || lower === "name") nameScore = 90;
+      else if (lower.indexOf("full name") !== -1) nameScore = 85;
+      else if (lower.indexOf("name") !== -1) nameScore = 70;
+    } else {
+      if (lower.indexOf("name") !== -1) nameScore = 10;
+    }
+    if (nameScore > bestName.score) bestName = { val: valStr, score: nameScore };
+
+    // Phone scoring
+    var phoneScore = 0;
+    if (lower === "phone number" || lower === "mobile number" || lower === "whatsapp number") phoneScore = 100;
+    else if (lower.indexOf("whatsapp") !== -1 || lower.indexOf("mobile") !== -1 || lower.indexOf("contact number") !== -1) phoneScore = 90;
+    else if (lower.indexOf("phone") !== -1) phoneScore = 80;
+    if (phoneScore > bestPhone.score) bestPhone = { val: valStr, score: phoneScore };
+
+    // Timestamp scoring
+    var timeScore = 0;
+    if (lower === "timestamp") timeScore = 100;
+    else if (lower.indexOf("timestamp") !== -1) timeScore = 90;
+    else if (lower.indexOf("submitted") !== -1) timeScore = 80;
+    if (timeScore > bestTimestamp.score) bestTimestamp = { val: valStr, score: timeScore };
+  }
+
+  return {
+    email: bestEmail.val,
+    fullName: bestName.val,
+    phone: bestPhone.val,
+    timestamp: bestTimestamp.val
+  };
+}
+
+/**
  * Universal Form Submit Trigger Handler
  * Handles both Google Sheets trigger (e.namedValues/e.range) and Google Forms trigger (e.response).
  */
@@ -91,16 +157,12 @@ function onFormSubmit(e) {
       var itemTitle = itemResponses[i].getItem().getTitle();
       var itemVal = itemResponses[i].getResponse();
       answers[itemTitle] = itemVal;
-      var lower = itemTitle.toLowerCase();
-
-      if (!email && (lower.includes("email") || lower.includes("mail"))) {
-        email = String(itemVal).trim();
-      } else if (!fullName && (lower.includes("name") || lower.includes("full name"))) {
-        fullName = String(itemVal).trim();
-      } else if (!phone && (lower.includes("phone") || lower.includes("mobile") || lower.includes("whatsapp"))) {
-        phone = String(itemVal).trim();
-      }
     }
+
+    var extractedA = extractCandidateFields(answers);
+    if (!email) email = extractedA.email;
+    fullName = extractedA.fullName;
+    phone = extractedA.phone;
   } else if (e && (e.namedValues || e.values)) {
     // ==========================================
     // CASE B: Spreadsheet Trigger (From spreadsheet -> On form submit)
@@ -110,17 +172,13 @@ function onFormSubmit(e) {
         var valArr = e.namedValues[key];
         var valStr = Array.isArray(valArr) ? valArr.join(", ") : String(valArr || "");
         answers[key] = valStr;
-        var lowerKey = key.toLowerCase();
-
-        if (!email && (lowerKey.includes("email") || lowerKey.includes("mail"))) {
-          email = valStr.trim();
-        } else if (!fullName && (lowerKey.includes("name") || lowerKey.includes("full name"))) {
-          fullName = valStr.trim();
-        } else if (!phone && (lowerKey.includes("phone") || lowerKey.includes("mobile") || lowerKey.includes("whatsapp"))) {
-          phone = valStr.trim();
-        } else if (!formSubmittedAt && lowerKey.includes("timestamp")) {
-          formSubmittedAt = valStr.trim();
-        }
+      }
+      var extractedB = extractCandidateFields(e.namedValues);
+      email = extractedB.email;
+      fullName = extractedB.fullName;
+      phone = extractedB.phone;
+      if (!formSubmittedAt && extractedB.timestamp) {
+        formSubmittedAt = extractedB.timestamp;
       }
     }
 

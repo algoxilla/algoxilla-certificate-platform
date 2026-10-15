@@ -148,6 +148,110 @@ export function validateSubmissionTimestamp(
   return { valid: true, timestampMs: tsMs };
 }
 
+const EXCLUDE_NAME_KEYWORDS = [
+  "college",
+  "institute",
+  "institution",
+  "university",
+  "school",
+  "team",
+  "organization",
+  "company",
+  "club",
+  "dept",
+  "department",
+  "project",
+  "guide",
+  "mentor",
+  "parent",
+  "father",
+  "mother",
+];
+
+export function extractCandidateFieldsFromRecord(
+  record: Record<string, unknown>
+): {
+  email: string;
+  fullName: string;
+  phone: string;
+  timestamp?: string;
+} {
+  let bestEmail = { val: "", score: 0 };
+  let bestName = { val: "", score: 0 };
+  let bestPhone = { val: "", score: 0 };
+  let bestTimestamp = { val: "", score: 0 };
+
+  for (const [key, val] of Object.entries(record)) {
+    const strVal = Array.isArray(val) ? val.join(", ").trim() : String(val ?? "").trim();
+    if (!strVal) continue;
+    const lower = key.toLowerCase().trim();
+
+    // Email candidate scoring
+    let emailScore = 0;
+    if (lower === "email address" || lower === "email" || lower === "email id") emailScore = 100;
+    else if (lower.includes("participant") && lower.includes("email")) emailScore = 95;
+    else if (lower.includes("email")) emailScore = 90;
+    else if (lower.includes("mail")) emailScore = 70;
+
+    if (emailScore > bestEmail.score) {
+      bestEmail = { val: strVal, score: emailScore };
+    }
+
+    // Name candidate scoring: strictly prioritize participant name over college/team/org names
+    const hasExclude = EXCLUDE_NAME_KEYWORDS.some((kw) => lower.includes(kw));
+    let nameScore = 0;
+    if (!hasExclude) {
+      if (lower === "full name" || lower === "fullname" || lower === "full_name") nameScore = 100;
+      else if (
+        lower === "name of participant" ||
+        lower === "participant name" ||
+        lower === "student name" ||
+        lower === "candidate name" ||
+        lower === "applicant name" ||
+        lower === "registered name"
+      )
+        nameScore = 95;
+      else if (lower === "your name" || lower === "name") nameScore = 90;
+      else if (lower.includes("full name")) nameScore = 85;
+      else if (lower.includes("name")) nameScore = 70;
+    } else {
+      // Excluded keyword present - only consider as very low priority fallback if no actual name exists
+      if (lower.includes("name")) nameScore = 10;
+    }
+
+    if (nameScore > bestName.score) {
+      bestName = { val: strVal, score: nameScore };
+    }
+
+    // Phone candidate scoring
+    let phoneScore = 0;
+    if (lower === "phone number" || lower === "mobile number" || lower === "whatsapp number") phoneScore = 100;
+    else if (lower.includes("whatsapp") || lower.includes("mobile") || lower.includes("contact number")) phoneScore = 90;
+    else if (lower.includes("phone")) phoneScore = 80;
+
+    if (phoneScore > bestPhone.score) {
+      bestPhone = { val: strVal, score: phoneScore };
+    }
+
+    // Timestamp candidate scoring
+    let tsScore = 0;
+    if (lower === "timestamp") tsScore = 100;
+    else if (lower.includes("timestamp")) tsScore = 90;
+    else if (lower.includes("submitted")) tsScore = 80;
+
+    if (tsScore > bestTimestamp.score) {
+      bestTimestamp = { val: strVal, score: tsScore };
+    }
+  }
+
+  return {
+    email: bestEmail.val,
+    fullName: bestName.val,
+    phone: bestPhone.val,
+    timestamp: bestTimestamp.val || undefined,
+  };
+}
+
 /**
  * Sanitizes and normalizes an incoming Google Forms payload (single submission or namedValues from Sheets).
  */
@@ -175,17 +279,13 @@ export function validateAndNormalizeSubmission(
     for (const [key, val] of Object.entries(nv)) {
       const stringVal = Array.isArray(val) ? val.join(", ") : String(val ?? "");
       answers[key] = sanitizeFormulaInjection(stringVal);
-      const lower = key.toLowerCase();
-
-      if (!rawEmail && (lower.includes("email") || lower.includes("mail"))) {
-        rawEmail = stringVal;
-      } else if (!rawName && (lower.includes("name") || lower.includes("full name"))) {
-        rawName = stringVal;
-      } else if (!rawPhone && (lower.includes("phone") || lower.includes("mobile") || lower.includes("whatsapp"))) {
-        rawPhone = stringVal;
-      } else if (!rawTimestamp && lower.includes("timestamp")) {
-        rawTimestamp = stringVal;
-      }
+    }
+    const extracted = extractCandidateFieldsFromRecord(nv);
+    rawEmail = extracted.email;
+    rawName = extracted.fullName;
+    rawPhone = extracted.phone;
+    if (!rawTimestamp && extracted.timestamp) {
+      rawTimestamp = extracted.timestamp;
     }
   } else {
     rawEmail = String(data.email || "");
@@ -195,6 +295,14 @@ export function validateAndNormalizeSubmission(
     if (data.answers && typeof data.answers === "object") {
       for (const [k, v] of Object.entries(data.answers as Record<string, unknown>)) {
         answers[k] = typeof v === "string" ? sanitizeFormulaInjection(v) : v;
+      }
+      // If fullName or email were missing from top-level but present in answers dictionary:
+      if (!rawName || !rawEmail) {
+        const extracted = extractCandidateFieldsFromRecord(data.answers as Record<string, unknown>);
+        if (!rawName && extracted.fullName) rawName = extracted.fullName;
+        if (!rawEmail && extracted.email) rawEmail = extracted.email;
+        if (!rawPhone && extracted.phone) rawPhone = extracted.phone;
+        if (!rawTimestamp && extracted.timestamp) rawTimestamp = extracted.timestamp;
       }
     }
   }
