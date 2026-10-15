@@ -114,6 +114,14 @@ async function main() {
   assert.ok(fakeLoc.includes("error=TOKEN_NOT_FOUND"), "Fake token must yield TOKEN_NOT_FOUND");
   console.log("✓ Non-existent token safely rejected with HTTP 307 redirect to canonical URL with TOKEN_NOT_FOUND");
 
+  // 3C: Dedicated Claim Confirmation Page Rendering
+  const claimPageRes = await fetch(`${PROD_URL}/portal/claim?token=${fakeToken}`);
+  console.log(`Claim Page Status: ${claimPageRes.status}`);
+  assert.equal(claimPageRes.status, 200, "Claim confirmation page must return HTTP 200");
+  const claimPageHtml = await claimPageRes.text();
+  assert.ok(claimPageHtml.includes("Claim Your Certificate") || claimPageHtml.includes("Algothon"), "Claim page must render certificate claim UI");
+  console.log("✓ Dedicated interactive claim confirmation page renders successfully with HTTP 200");
+
   // 4. Live Session Endpoint Unauthorized Protection
   console.log("\n--- 4. LIVE SESSION ENDPOINT AUTH PROTECTION ---");
   const unauthRes = await fetch(`${PROD_URL}/api/auth/session`);

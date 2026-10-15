@@ -100,7 +100,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     // 4. Construct Secure Claim URL
     const baseUrl = getPublicAppUrl();
-    const claimUrl = `${baseUrl}/api/auth/consume-claim-link?token=${encodeURIComponent(rawToken)}`;
+    const claimUrl = `${baseUrl}/portal/claim?token=${encodeURIComponent(rawToken)}`;
 
     // 5. Dispatch via Brevo
     await brevoService.sendClaimLink({

@@ -557,11 +557,20 @@ console.log("\n--- Suite 11: End-to-End Synthetic Participant Lifecycle ---");
     ipAddress: "10.180.1.1",
   });
 
-  // 2. Participant clicks single-use claim link in email
-  const claimRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawToken}`, {
+  // 2A. Participant clicks single-use claim link in email -> Safe GET redirects to /portal/claim without burning token
+  const safeGetRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawToken}`, {
     redirect: "manual",
   });
-  assert.strictEqual(claimRes.status, 307, "Valid claim link must redirect to /portal");
+  assert.strictEqual(safeGetRes.status, 307, "Safe GET claim link must redirect to /portal/claim");
+  const safeGetLoc = safeGetRes.headers.get("location") || "";
+  assert.ok(safeGetLoc.includes("/portal/claim"), "Safe GET must redirect to claim confirmation page");
+
+  // 2B. User confirms claim via POST -> Atomically consumes token and issues session cookie
+  const claimRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawToken}`, {
+    method: "POST",
+    redirect: "manual",
+  });
+  assert.strictEqual(claimRes.status, 303, "POST claim link must redirect to /portal with 303 See Other");
   const redirectUrl = claimRes.headers.get("location") || "";
   assert.ok(redirectUrl.includes("verified=true"), "Redirect must indicate successful verification");
 
@@ -573,9 +582,10 @@ console.log("\n--- Suite 11: End-to-End Synthetic Participant Lifecycle ---");
 
   // 3. Replay attack prevention: second click on same link MUST fail
   const replayRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawToken}`, {
+    method: "POST",
     redirect: "manual",
   });
-  assert.strictEqual(replayRes.status, 307);
+  assert.strictEqual(replayRes.status, 303);
   const replayRedirect = replayRes.headers.get("location") || "";
   assert.ok(replayRedirect.includes("TOKEN_ALREADY_USED"), "Replayed claim link must be rejected");
 

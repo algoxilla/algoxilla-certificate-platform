@@ -64,7 +64,7 @@ const adminClient = new Client({
   ssl: isLocal ? false : { rejectUnauthorized: false },
 });
 
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const baseUrl = process.env.TEST_BASE_URL || "http://localhost:3000";
 
 console.log("=================================================");
 console.log("   RUNNING PHASE C SECURITY & AUTHORIZATION TESTS ");
@@ -212,8 +212,8 @@ async function runTests() {
         role: "PARTICIPANT",
       });
 
-      // Alice tries to download Bob's synthetic certificate (MOCK-ALGO26-8942 belongs to alex.chen@example.com)
-      const downloadRes = await fetch(`${baseUrl}/api/certificate/MOCK-ALGO26-8942/download`, {
+      // Alice tries to download hello@algoxilla.com's certificate (ALGO-2026-TEST-HELLO)
+      const downloadRes = await fetch(`${baseUrl}/api/certificate/ALGO-2026-TEST-HELLO/download`, {
         headers: {
           Cookie: `algo_claim_session=${userASession}`,
           "x-forwarded-for": "10.200.1.4",
@@ -288,18 +288,27 @@ async function runTests() {
         [crypto.randomUUID(), syntheticEmail, tokenHash, expiresAt, now]
       );
 
-      // First consumption: MUST succeed
-      const firstRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawClaimToken}`, {
+      // Safe GET: MUST redirect to claim confirmation page without consuming token
+      const safeGetRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawClaimToken}`, {
         redirect: "manual",
       });
-      assert.strictEqual(firstRes.status, 307);
+      assert.strictEqual(safeGetRes.status, 307);
+      assert.ok(safeGetRes.headers.get("location")?.includes("/portal/claim"), "Safe GET must redirect to /portal/claim");
+
+      // First consumption via POST: MUST succeed
+      const firstRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawClaimToken}`, {
+        method: "POST",
+        redirect: "manual",
+      });
+      assert.strictEqual(firstRes.status, 303);
       assert.ok(firstRes.headers.get("location")?.includes("verified=true"), "First claim must succeed");
 
       // Second consumption (replay attack): MUST fail
       const replayRes = await fetch(`${baseUrl}/api/auth/consume-claim-link?token=${rawClaimToken}`, {
+        method: "POST",
         redirect: "manual",
       });
-      assert.strictEqual(replayRes.status, 307);
+      assert.strictEqual(replayRes.status, 303);
       assert.ok(replayRes.headers.get("location")?.includes("TOKEN_ALREADY_USED"), "Replay attack must be blocked");
 
       console.log("✓ Test 6 Passed: Token atomic invalidation successfully blocks replay attack");
