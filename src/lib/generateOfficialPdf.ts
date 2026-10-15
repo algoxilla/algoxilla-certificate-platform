@@ -24,6 +24,62 @@ export interface GenerateOfficialPdfOptions {
   verificationBaseUrl?: string; // Optional custom verification base URL override
   artworkBytes?: Uint8Array; // Optional preloaded artwork buffer
   fontBytes?: Uint8Array; // Optional preloaded font buffer
+  isSynthetic?: boolean; // Optional explicit synthetic indicator
+}
+
+export interface CertificateStatusInfo {
+  label: string;
+  color: { r: number; g: number; b: number };
+  status: "dev" | "synthetic" | "pre_launch" | "official";
+}
+
+/**
+ * Determines the accurate, production-honest status badge for a certificate.
+ * Strictly avoids misleading DNS claims (such as "DNS PENDING") on verified canonical platforms,
+ * clearly differentiates synthetic test artifacts from genuine records, and reflects
+ * whether the credential is in local dev, pre-launch staging, or live official status.
+ */
+export function getCertificateStatusLabel(options: {
+  certificateId: string;
+  isDevUrl?: boolean;
+  isDomainLive?: boolean;
+  isSynthetic?: boolean;
+}): CertificateStatusInfo {
+  const { certificateId, isDevUrl = false, isDomainLive = false, isSynthetic } = options;
+
+  if (isDevUrl) {
+    return {
+      label: "[DEV TEST ARTIFACT]",
+      color: { r: 0.7, g: 0.2, b: 0.2 },
+      status: "dev",
+    };
+  }
+
+  const isSynth =
+    isSynthetic === true ||
+    /(?:TEST|MOCK|PILOT|DEMO|SAMPLE|AUDIT)/i.test(certificateId);
+
+  if (isSynth) {
+    return {
+      label: "[SYNTHETIC TEST RECORD]",
+      color: { r: 0.75, g: 0.2, b: 0.2 },
+      status: "synthetic",
+    };
+  }
+
+  if (!isDomainLive) {
+    return {
+      label: "[PRE-LAUNCH STAGING RECORD]",
+      color: { r: 0.65, g: 0.45, b: 0.05 },
+      status: "pre_launch",
+    };
+  }
+
+  return {
+    label: "[OFFICIAL REGISTRY RECORD]",
+    color: { r: 0.08, g: 0.5, b: 0.25 },
+    status: "official",
+  };
 }
 
 export interface OfficialCertificatePdfResult {
@@ -119,6 +175,7 @@ export async function generateOfficialCertificatePdf({
   verificationBaseUrl,
   artworkBytes,
   fontBytes,
+  isSynthetic,
 }: GenerateOfficialPdfOptions): Promise<OfficialCertificatePdfResult> {
   const trimmedName = recipientName.trim();
   if (!trimmedName) {
@@ -264,23 +321,21 @@ export async function generateOfficialCertificatePdf({
     process.env.APP_LIVE !== undefined
       ? process.env.APP_LIVE === "true"
       : process.env.NEXT_PUBLIC_APP_LIVE === "true";
-  if (isDevUrl) {
-    page.drawText("[DEV TEST ARTIFACT]", {
-      x: badgeX + 48,
-      y: badgeY + 5.5,
-      size: 5,
-      font: regularFont,
-      color: rgb(0.7, 0.2, 0.2),
-    });
-  } else if (!isDomainLive) {
-    page.drawText("[TEST ARTIFACT • DNS PENDING]", {
-      x: badgeX + 48,
-      y: badgeY + 5.5,
-      size: 5,
-      font: regularFont,
-      color: rgb(0.7, 0.2, 0.2),
-    });
-  }
+
+  const statusInfo = getCertificateStatusLabel({
+    certificateId,
+    isDevUrl,
+    isDomainLive,
+    isSynthetic,
+  });
+
+  page.drawText(statusInfo.label, {
+    x: badgeX + 48,
+    y: badgeY + 5.5,
+    size: 5.2,
+    font: titleFont,
+    color: rgb(statusInfo.color.r, statusInfo.color.g, statusInfo.color.b),
+  });
 
   // 7. Save PDF & Compute Hashes
   const pdfBytes = await pdfDoc.save();

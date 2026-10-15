@@ -45,6 +45,8 @@ export default function CertificatePreview({
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [lastDocumentHash, setLastDocumentHash] = useState<string | null>(null);
   const nameLayout = calculateParticipantNameLayout(recipientName);
+  const isSynthetic = /(?:TEST|MOCK|PILOT|DEMO|SAMPLE|AUDIT)/i.test(certificateId);
+  const isAppLive = process.env.NEXT_PUBLIC_APP_LIVE === "true";
 
   // Dedicated Handler: Download Official Personalized PDF via server download route
   const handleDownloadOfficial = async () => {
@@ -294,7 +296,13 @@ export default function CertificatePreview({
             <span>•</span>
             <span>Includes Canonical QR Code</span>
             <span>•</span>
-            <span className="text-amber-400 font-semibold">Test Artifact (Public Domain Pending DNS)</span>
+            {isSynthetic ? (
+              <span className="text-amber-400 font-semibold">Synthetic Test Record (Pre-Launch Staging)</span>
+            ) : !isAppLive ? (
+              <span className="text-amber-400 font-semibold">Pre-Launch Staging Record</span>
+            ) : (
+              <span className="text-emerald-400 font-semibold">Official Canonical Registry Record</span>
+            )}
           </div>
         </div>
       ) : (

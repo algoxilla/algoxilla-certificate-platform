@@ -1,9 +1,30 @@
-// Comprehensive test suite for Phase C Official PDF Generator
 import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { generateOfficialCertificatePdf } from "../src/lib/generateOfficialPdf.ts";
+import zlib from "node:zlib";
+import { PDFDocument } from "pdf-lib";
+import { generateOfficialCertificatePdf, getCertificateStatusLabel } from "../src/lib/generateOfficialPdf.ts";
+
+async function extractDecompressedStreamsText(pdfBytes) {
+  const doc = await PDFDocument.load(pdfBytes);
+  const streamTexts = [];
+  for (let p = 0; p < doc.getPageCount(); p++) {
+    const page = doc.getPage(p);
+    const contents = page.node.Contents();
+    for (let i = 0; i < contents.size(); i++) {
+      const streamObj = doc.context.lookup(contents.get(i));
+      const raw = streamObj.getContents();
+      try {
+        const decomp = zlib.inflateSync(Buffer.from(raw)).toString("latin1");
+        streamTexts.push(decomp);
+      } catch {
+        streamTexts.push(Buffer.from(raw).toString("latin1"));
+      }
+    }
+  }
+  return streamTexts.join("\n");
+}
 
 console.log("=================================================");
 console.log("   RUNNING PHASE C OFFICIAL PDF GENERATION TESTS  ");
@@ -115,6 +136,154 @@ if (!fs.existsSync(outputDir)) {
     "Must reject empty certificate ID"
   );
   console.log("✓ Test 5 Passed: Strict validation prevents blank name / ID issuance");
+}
+
+// Test 6: Status Badge & DNS PENDING Elimination on Synthetic Test Certificate
+{
+  console.log("\n--- Test 6: Synthetic Test Certificate (Elimination of DNS PENDING) ---");
+  const certId = "ALGO-2026-TEST-HELLO";
+  const statusInfo = getCertificateStatusLabel({
+    certificateId: certId,
+    isDevUrl: false,
+    isDomainLive: false,
+  });
+
+  assert.strictEqual(statusInfo.status, "synthetic", "Must identify certificate as synthetic");
+  assert.strictEqual(statusInfo.label, "[SYNTHETIC TEST RECORD]", "Must use [SYNTHETIC TEST RECORD] label");
+
+  const result = await generateOfficialCertificatePdf({
+    recipientName: "Algoxilla Test Participant",
+    certificateId: certId,
+    preferPublicDomain: true,
+  });
+
+  assert.ok(result.pdfBytes.length > 50000);
+  assert.strictEqual(
+    result.verificationUrl,
+    "https://algoxilla-certificate-platform-1.vercel.app/verify/ALGO-2026-TEST-HELLO",
+    "Verification URL must remain canonical production URL"
+  );
+
+  const rawBinary = Buffer.from(result.pdfBytes).toString("latin1");
+  assert.strictEqual(rawBinary.includes("DNS PENDING"), false, "Binary must never contain raw DNS PENDING");
+
+  const streamText = await extractDecompressedStreamsText(result.pdfBytes);
+  assert.strictEqual(streamText.includes("DNS PENDING"), false, "Decompressed streams must never contain DNS PENDING");
+
+  // Verify explicit isSynthetic option works regardless of ID
+  const customSynthStatus = getCertificateStatusLabel({
+    certificateId: "ALGO-2026-CUSTOM-001",
+    isSynthetic: true,
+    isDevUrl: false,
+    isDomainLive: true,
+  });
+  assert.strictEqual(customSynthStatus.label, "[SYNTHETIC TEST RECORD]");
+
+  fs.writeFileSync(path.join(outputDir, "test6-synthetic-test-hello.pdf"), Buffer.from(result.pdfBytes));
+  console.log("✓ Test 6 Passed: Synthetic certificate correctly renders [SYNTHETIC TEST RECORD] with zero DNS PENDING references");
+}
+
+// Test 7: Genuine Approved Certificate in Pre-Launch Staging
+{
+  console.log("\n--- Test 7: Genuine Certificate in Pre-Launch Staging ---");
+  const genuineCertId = "ALGO-2026-HACK-7892";
+  const statusInfo = getCertificateStatusLabel({
+    certificateId: genuineCertId,
+    isDevUrl: false,
+    isDomainLive: false,
+  });
+
+  assert.strictEqual(statusInfo.status, "pre_launch", "Must identify genuine certificate in staging as pre_launch");
+  assert.strictEqual(statusInfo.label, "[PRE-LAUNCH STAGING RECORD]", "Must use [PRE-LAUNCH STAGING RECORD] label");
+
+  const prevLive = process.env.APP_LIVE;
+  const prevPubLive = process.env.NEXT_PUBLIC_APP_LIVE;
+  process.env.APP_LIVE = "false";
+  process.env.NEXT_PUBLIC_APP_LIVE = "false";
+
+  try {
+    const result = await generateOfficialCertificatePdf({
+      recipientName: "Alex Chen",
+      certificateId: genuineCertId,
+      preferPublicDomain: true,
+    });
+
+    assert.ok(result.pdfBytes.length > 50000);
+    assert.strictEqual(
+      result.verificationUrl,
+      "https://algoxilla-certificate-platform-1.vercel.app/verify/ALGO-2026-HACK-7892"
+    );
+
+    const streamText = await extractDecompressedStreamsText(result.pdfBytes);
+    assert.strictEqual(streamText.includes("DNS PENDING"), false, "Must not contain DNS PENDING");
+
+    fs.writeFileSync(path.join(outputDir, "test7-genuine-pre-launch.pdf"), Buffer.from(result.pdfBytes));
+    console.log("✓ Test 7 Passed: Genuine certificate in staging correctly renders [PRE-LAUNCH STAGING RECORD]");
+  } finally {
+    process.env.APP_LIVE = prevLive;
+    process.env.NEXT_PUBLIC_APP_LIVE = prevPubLive;
+  }
+}
+
+// Test 8: Genuine Approved Certificate in Live Production Mode
+{
+  console.log("\n--- Test 8: Genuine Certificate in Live Production Mode ---");
+  const genuineCertId = "ALGO-2026-HACK-7892";
+  const statusInfo = getCertificateStatusLabel({
+    certificateId: genuineCertId,
+    isDevUrl: false,
+    isDomainLive: true,
+  });
+
+  assert.strictEqual(statusInfo.status, "official", "Must identify genuine live certificate as official");
+  assert.strictEqual(statusInfo.label, "[OFFICIAL REGISTRY RECORD]", "Must use [OFFICIAL REGISTRY RECORD] label");
+
+  const prevLive = process.env.APP_LIVE;
+  const prevPubLive = process.env.NEXT_PUBLIC_APP_LIVE;
+  process.env.APP_LIVE = "true";
+  process.env.NEXT_PUBLIC_APP_LIVE = "true";
+
+  try {
+    const result = await generateOfficialCertificatePdf({
+      recipientName: "Alex Chen",
+      certificateId: genuineCertId,
+      preferPublicDomain: true,
+    });
+
+    assert.ok(result.pdfBytes.length > 50000);
+    const streamText = await extractDecompressedStreamsText(result.pdfBytes);
+    assert.strictEqual(streamText.includes("DNS PENDING"), false, "Must not contain DNS PENDING");
+
+    fs.writeFileSync(path.join(outputDir, "test8-genuine-live-production.pdf"), Buffer.from(result.pdfBytes));
+    console.log("✓ Test 8 Passed: Genuine live certificate correctly renders [OFFICIAL REGISTRY RECORD]");
+  } finally {
+    // Strictly preserve safety boundary: reset back to original environment state (APP_LIVE=false)
+    if (prevLive === undefined) delete process.env.APP_LIVE;
+    else process.env.APP_LIVE = prevLive;
+    if (prevPubLive === undefined) delete process.env.NEXT_PUBLIC_APP_LIVE;
+    else process.env.NEXT_PUBLIC_APP_LIVE = prevPubLive;
+  }
+}
+
+// Test 9: Dev Mode URL Badge
+{
+  console.log("\n--- Test 9: Local Development URL Badge ---");
+  const devStatus = getCertificateStatusLabel({
+    certificateId: "ALGO-2026-HACK-7892",
+    isDevUrl: true,
+    isDomainLive: false,
+  });
+  assert.strictEqual(devStatus.status, "dev");
+  assert.strictEqual(devStatus.label, "[DEV TEST ARTIFACT]");
+
+  const devResult = await generateOfficialCertificatePdf({
+    recipientName: "Local Tester",
+    certificateId: "ALGO-2026-HACK-7892",
+    verificationBaseUrl: "http://localhost:3000",
+  });
+  const streamText = await extractDecompressedStreamsText(devResult.pdfBytes);
+  assert.strictEqual(streamText.includes("DNS PENDING"), false);
+  console.log("✓ Test 9 Passed: Local dev environment correctly renders [DEV TEST ARTIFACT]");
 }
 
 console.log("\n=================================================");

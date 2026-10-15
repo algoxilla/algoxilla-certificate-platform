@@ -163,12 +163,23 @@ export async function GET(
       );
     }
 
+    const isSynthetic =
+      normalizedCode.includes("TEST") ||
+      normalizedCode.includes("MOCK") ||
+      normalizedCode.includes("PILOT") ||
+      normalizedCode.includes("DEMO") ||
+      normalizedCode.includes("AUDIT") ||
+      certOwnerEmail.includes("example.com") ||
+      certOwnerEmail.includes("synthetic") ||
+      certOwnerEmail.includes("test");
+
     // 6. Generate Official Binary PDF
     const result = await generateOfficialCertificatePdf({
       recipientName,
       certificateId: normalizedCode,
       issueDate,
       preferPublicDomain: true,
+      isSynthetic,
     });
 
     return new Response(Buffer.from(result.pdfBytes), {

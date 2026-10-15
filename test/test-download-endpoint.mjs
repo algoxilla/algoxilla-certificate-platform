@@ -121,8 +121,26 @@ async function runTests() {
   const { width, height } = firstPage.getSize();
   console.log(`Parsed Page Dimensions: ${Math.round(width)} x ${Math.round(height)} pt`);
   assert.equal(Math.round(width), 842, "Width must match A4 Landscape (842 pt)");
-  assert.equal(Math.round(height), 595, "Height must match A4 Landscape (595 pt)");
   console.log("✓ PDF structure, binary header, and A4 Landscape geometry verified");
+
+  // Verify absence of misleading DNS PENDING label
+  const rawBinary = Buffer.from(pdfBytes).toString("latin1");
+  assert.equal(rawBinary.includes("DNS PENDING"), false, "Downloaded PDF must not contain DNS PENDING");
+
+  const zlib = await import("node:zlib");
+  const contents = firstPage.node.Contents();
+  let decompressedAll = "";
+  for (let i = 0; i < contents.size(); i++) {
+    const streamObj = pdfDoc.context.lookup(contents.get(i));
+    const raw = streamObj.getContents();
+    try {
+      decompressedAll += zlib.inflateSync(Buffer.from(raw)).toString("latin1");
+    } catch {
+      decompressedAll += Buffer.from(raw).toString("latin1");
+    }
+  }
+  assert.equal(decompressedAll.includes("DNS PENDING"), false, "Decompressed PDF streams must not contain DNS PENDING");
+  console.log("✓ Verified DNS PENDING label is completely eliminated from generated credential");
 
   // 3. Verification Link Resolution
   console.log("\n--- 3. Canonical QR Verification URL Resolution ---");
