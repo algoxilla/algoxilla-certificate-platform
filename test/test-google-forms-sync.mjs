@@ -72,11 +72,11 @@ async function cleanupSyntheticTestData() {
   try {
     await pool.query(`
       DELETE FROM eligibility_records WHERE registration_id IN (
-        SELECT id FROM event_registrations WHERE external_registration_id LIKE 'GF-TEST-RESP-%'
+        SELECT id FROM event_registrations WHERE external_registration_id LIKE 'GF-%'
       );
     `);
     await pool.query(`
-      DELETE FROM event_registrations WHERE external_registration_id LIKE 'GF-TEST-RESP-%';
+      DELETE FROM event_registrations WHERE external_registration_id LIKE 'GF-%';
     `);
     await pool.query(`
       DELETE FROM participants WHERE email LIKE '%@algoxilla.test';
@@ -502,8 +502,69 @@ async function runTests() {
     }
     console.log("✅ Passed Test 13: Verified 0 claim tokens generated for imported registrations.");
 
+    // -------------------------------------------------------------------------
+    // TEST 14: Google Sheets Spreadsheet Trigger Payload & Idempotency
+    // -------------------------------------------------------------------------
+    console.log("\n--- Test 14: Google Sheets Spreadsheet Trigger (namedValues) ---");
+    const sheetPayload = {
+      responseId: "GF-SH-0-R99",
+      formSubmittedAt: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
+      eventId: "ALGOTHON26",
+      namedValues: {
+        "Timestamp": [new Date().toISOString()],
+        "Email Address": ["sheet.trigger@algoxilla.test"],
+        "Full Name": ["Sheet Trigger Synthetic User"],
+        "Phone Number": ["+919876543210"],
+        "College": ["Algoxilla Test Institute"]
+      }
+    };
+
+    const sheetRes = await fetch(`${BASE_URL}/api/integrations/google-forms`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-integration-secret": WEBHOOK_SECRET,
+        "x-request-timestamp": new Date().toISOString(),
+      },
+      body: JSON.stringify(sheetPayload),
+    });
+
+    assert.strictEqual(sheetRes.status, 201, "Spreadsheet trigger submission must return HTTP 201");
+    const sheetJson = await sheetRes.json();
+    assert.strictEqual(sheetJson.action, "CREATED", "Action must be CREATED");
+    assert.strictEqual(sheetJson.responseId, "GF-SH-0-R99");
+
+    // Retry duplicate spreadsheet row submission (must be idempotent ALREADY_PROCESSED)
+    const sheetRetryRes = await fetch(`${BASE_URL}/api/integrations/google-forms`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-integration-secret": WEBHOOK_SECRET,
+        "x-request-timestamp": new Date().toISOString(),
+      },
+      body: JSON.stringify(sheetPayload),
+    });
+
+    assert.strictEqual(sheetRetryRes.status, 200, "Spreadsheet trigger retry must return HTTP 200");
+    const sheetRetryJson = await sheetRetryRes.json();
+    assert.strictEqual(sheetRetryJson.action, "ALREADY_PROCESSED", "Duplicate row must be ALREADY_PROCESSED");
+
+    if (pool) {
+      const rowCheck = await pool.query(
+        `SELECT r.id, e.attendance_confirmed, e.eligibility_status
+         FROM event_registrations r
+         JOIN eligibility_records e ON r.id = e.registration_id
+         WHERE r.external_registration_id = 'GF-SH-0-R99';`
+      );
+      assert.strictEqual(rowCheck.rows.length, 1, "Exactly 1 registration row must exist");
+      assert.strictEqual(rowCheck.rows[0].attendance_confirmed, 0, "Attendance must strictly remain 0");
+      assert.strictEqual(rowCheck.rows[0].eligibility_status, "PENDING_ORGANIZER_APPROVAL");
+    }
+    console.log("✅ Passed Test 14: Google Sheets trigger payload normalized and handled idempotently with attendance=0.");
+
     console.log("\n=================================================");
-    console.log("   ALL 13 GOOGLE FORMS INTEGRATION TESTS PASSED   ");
+    console.log("   ALL 14 GOOGLE FORMS INTEGRATION TESTS PASSED   ");
     console.log("=================================================\n");
   } finally {
     await cleanupSyntheticTestData();

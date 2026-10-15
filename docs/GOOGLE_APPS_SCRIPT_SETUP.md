@@ -1,22 +1,20 @@
 # Algoxilla Certificate Platform — Google Forms Webhook Setup Guide
 
-This document describes how to configure Google Forms and Google Apps Script to synchronize participant registrations into the Algoxilla Certificate Platform in real time with automatic retry and replay protection.
+This document describes how to configure Google Forms / Google Sheets and Google Apps Script to synchronize participant registrations into the Algoxilla Certificate Platform in real time with automatic retry, replay protection, and idempotency.
 
 ---
 
-## 1. Prerequisites & Environment Variables
+## 1. Production Endpoint & Environment Variables
 
-Ensure the following environment variable is configured in Vercel / hosting environment:
+### A. Vercel Hosting Environment
+The following environment variable must be set in Vercel Production (`devns181-7267s-projects/algoxilla-certificate-platform-1`):
+* `GOOGLE_FORMS_WEBHOOK_SECRET` — Strong random secret (Configured as Secret in Production).
+* `APP_LIVE` = `false`
+* `NEXT_PUBLIC_APP_LIVE` = `false`
 
-```bash
-GOOGLE_FORMS_WEBHOOK_SECRET="<generate-random-32-byte-hex-string>"
+The deployed production webhook endpoint URL is:
 ```
-
-*(In production, `GOOGLE_FORMS_WEBHOOK_SECRET` is strictly required and fails closed if omitted).*
-
-The webhook endpoint URL is:
-```
-https://verify.algoxilla.com/api/integrations/google-forms
+https://algoxilla-certificate-platform-1.vercel.app/api/integrations/google-forms
 ```
 
 ---
@@ -26,80 +24,154 @@ https://verify.algoxilla.com/api/integrations/google-forms
 - **No Premature Certificates:** Registering via Google Forms **never** issues a certificate or marks attendance (`attendance_confirmed` is strictly set to `0`, and eligibility is `PENDING_ORGANIZER_APPROVAL`).
 - **No Email Dispatches:** No claim links or participant emails are sent upon form registration.
 - **Timing Attack Defense:** Header verification uses constant-time byte comparison (`crypto.timingSafeEqual`).
-- **Replay Protection:** Submissions require a fresh request timestamp within 5 minutes of server time.
-- **Idempotency:** Stable Google Forms `responseId` prevents duplicate records upon re-submissions or network retries.
-- **Edit Tracking:** If a participant edits their submitted response in Google Forms, the platform updates their registered name and records an immutable audit log entry.
+- **Replay Protection:** Submissions require a fresh request timestamp within 5 minutes of server time (`x-request-timestamp`).
+- **Idempotency:** Stable Google Forms `responseId` (or deterministic spreadsheet row identifier) prevents duplicate records upon re-submissions or network retries.
+- **Edit Tracking:** If a participant edits their submitted response, the platform updates their registered name and records an immutable audit log entry.
 - **Formula Injection Defense:** Form answers beginning with `=`, `+`, `-`, or `@` are safely sanitized.
 
 ---
 
 ## 3. Google Apps Script Implementation
 
-### Option A: Direct Form Script (Recommended)
-1. Open your Google Form in Google Drive.
-2. Click the three dots menu (top right) -> **Script editor**.
-3. Replace the editor contents with the code below:
+This script supports **both** trigger types:
+1. **Spreadsheet Trigger (`From spreadsheet → On form submit`)** — When responses are linked to a Google Sheet.
+2. **Form Trigger (`From form → On form submit`)** — When the script is attached directly to the Google Form.
+
+### Step 1: Add Script to Sheet or Form
+1. Open the connected Google Sheet (or Google Form).
+2. Go to **Extensions > Apps Script**.
+3. Replace all code in the script editor with the code below:
 
 ```javascript
 /**
- * Algoxilla Certificate Platform - Google Forms Live Webhook Trigger
- * Sends responses to Algoxilla API with exponential backoff retries.
+ * Algoxilla Certificate Platform - Universal Google Forms Webhook Integration
+ * Compatible with BOTH "From spreadsheet" and "From form" OnFormSubmit triggers.
  */
 
-const CONFIG = {
-  ENDPOINT_URL: "https://verify.algoxilla.com/api/integrations/google-forms",
-  WEBHOOK_SECRET: "YOUR_GOOGLE_FORMS_WEBHOOK_SECRET",
-  EVENT_CODE: "ALGOTHON26", // Target event code
-  MAX_RETRIES: 3,
-};
+function getConfig() {
+  var props = PropertiesService.getScriptProperties();
+  return {
+    ENDPOINT_URL: props.getProperty("WEBHOOK_URL") || "https://algoxilla-certificate-platform-1.vercel.app/api/integrations/google-forms",
+    WEBHOOK_SECRET: props.getProperty("WEBHOOK_SECRET") || props.getProperty("GOOGLE_FORMS_WEBHOOK_SECRET") || "",
+    EVENT_ID: props.getProperty("EVENT_ID") || props.getProperty("EVENT_CODE") || "ALGOTHON26",
+    MAX_RETRIES: 3,
+  };
+}
 
+/**
+ * Universal Form Submit Trigger Handler
+ * Handles both Google Sheets trigger (e.namedValues/e.range) and Google Forms trigger (e.response).
+ */
 function onFormSubmit(e) {
-  var response = e.response;
-  var responseId = response.getId();
-  var timestamp = response.getTimestamp().toISOString();
-  var itemResponses = response.getItemResponses();
+  var config = getConfig();
 
-  var email = response.getRespondentEmail() || "";
+  if (!config.WEBHOOK_SECRET) {
+    Logger.log("⚠️ Error: WEBHOOK_SECRET is not configured in Script Properties.");
+    return;
+  }
+
+  var responseId = "";
+  var formSubmittedAt = "";
+  var email = "";
   var fullName = "";
   var phone = "";
   var answers = {};
 
-  for (var i = 0; i < itemResponses.length; i++) {
-    var title = itemResponses[i].getItem().getTitle();
-    var val = itemResponses[i].getResponse();
-    answers[title] = val;
-    var lowerTitle = title.toLowerCase();
+  if (e && e.response) {
+    // ==========================================
+    // CASE A: Form Trigger (From form -> On form submit)
+    // ==========================================
+    var response = e.response;
+    responseId = response.getId();
+    formSubmittedAt = response.getTimestamp().toISOString();
+    email = response.getRespondentEmail() || "";
+    var itemResponses = response.getItemResponses();
 
-    if (!email && (lowerTitle.includes("email") || lowerTitle.includes("mail"))) {
-      email = String(val).trim();
-    } else if (!fullName && (lowerTitle.includes("name") || lowerTitle.includes("full name"))) {
-      fullName = String(val).trim();
-    } else if (!phone && (lowerTitle.includes("phone") || lowerTitle.includes("mobile") || lowerTitle.includes("whatsapp"))) {
-      phone = String(val).trim();
+    for (var i = 0; i < itemResponses.length; i++) {
+      var itemTitle = itemResponses[i].getItem().getTitle();
+      var itemVal = itemResponses[i].getResponse();
+      answers[itemTitle] = itemVal;
+      var lower = itemTitle.toLowerCase();
+
+      if (!email && (lower.includes("email") || lower.includes("mail"))) {
+        email = String(itemVal).trim();
+      } else if (!fullName && (lower.includes("name") || lower.includes("full name"))) {
+        fullName = String(itemVal).trim();
+      } else if (!phone && (lower.includes("phone") || lower.includes("mobile") || lower.includes("whatsapp"))) {
+        phone = String(itemVal).trim();
+      }
     }
+  } else if (e && (e.namedValues || e.values)) {
+    // ==========================================
+    // CASE B: Spreadsheet Trigger (From spreadsheet -> On form submit)
+    // ==========================================
+    if (e.namedValues) {
+      for (var key in e.namedValues) {
+        var valArr = e.namedValues[key];
+        var valStr = Array.isArray(valArr) ? valArr.join(", ") : String(valArr || "");
+        answers[key] = valStr;
+        var lowerKey = key.toLowerCase();
+
+        if (!email && (lowerKey.includes("email") || lowerKey.includes("mail"))) {
+          email = valStr.trim();
+        } else if (!fullName && (lowerKey.includes("name") || lowerKey.includes("full name"))) {
+          fullName = valStr.trim();
+        } else if (!phone && (lowerKey.includes("phone") || lowerKey.includes("mobile") || lowerKey.includes("whatsapp"))) {
+          phone = valStr.trim();
+        } else if (!formSubmittedAt && lowerKey.includes("timestamp")) {
+          formSubmittedAt = valStr.trim();
+        }
+      }
+    }
+
+    // Deterministic & Unique responseId for Spreadsheet Trigger
+    if (e.range) {
+      var sheet = e.range.getSheet();
+      var sheetId = sheet.getSheetId ? sheet.getSheetId() : "0";
+      var row = e.range.getRow();
+      responseId = "GF-SH-" + sheetId + "-R" + row;
+    } else if (email && formSubmittedAt) {
+      responseId = "GF-SUB-" + Utilities.base64EncodeWebSafe(
+        Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, email + ":" + formSubmittedAt)
+      ).substring(0, 16);
+    } else {
+      responseId = "GF-ROW-" + new Date().getTime();
+    }
+  } else {
+    Logger.log("⚠️ Event object 'e' is undefined. If testing manually, run testWebhook() instead.");
+    return;
+  }
+
+  if (!formSubmittedAt) {
+    formSubmittedAt = new Date().toISOString();
   }
 
   var payload = {
     responseId: responseId,
-    formSubmittedAt: timestamp,
-    timestamp: timestamp,
+    formSubmittedAt: formSubmittedAt,
+    timestamp: formSubmittedAt,
     email: email,
     fullName: fullName,
     phone: phone,
-    eventId: CONFIG.EVENT_CODE,
+    eventId: config.EVENT_ID,
     answers: answers
   };
 
-  sendWithRetry(payload, 0);
+  sendWithRetry(payload, 0, config);
 }
 
-function sendWithRetry(payload, attempt) {
+/**
+ * Sends registration payload with fresh timestamp and exponential backoff retry.
+ */
+function sendWithRetry(payload, attempt, config) {
+  if (!config) config = getConfig();
+
   // Generate fresh request timestamp immediately before dispatch for replay protection
   var requestTimestamp = new Date().toISOString();
 
   var headers = {
     "Content-Type": "application/json",
-    "x-integration-secret": CONFIG.WEBHOOK_SECRET,
+    "x-integration-secret": config.WEBHOOK_SECRET,
     "x-request-timestamp": requestTimestamp,
     "x-submission-timestamp": requestTimestamp
   };
@@ -112,38 +184,89 @@ function sendWithRetry(payload, attempt) {
   };
 
   try {
-    var response = UrlFetchApp.fetch(CONFIG.ENDPOINT_URL, options);
+    var response = UrlFetchApp.fetch(config.ENDPOINT_URL, options);
     var statusCode = response.getResponseCode();
-    var body = response.getContentText();
+    var bodyText = response.getContentText();
 
     if (statusCode >= 200 && statusCode < 300) {
-      Logger.log("✅ Successfully synced response: " + payload.responseId);
-      return;
+      Logger.log("✅ Successfully synced response: " + payload.responseId + " (HTTP " + statusCode + ")");
+      return { success: true, status: statusCode, body: bodyText };
     }
 
-    Logger.warn("⚠️ Server returned HTTP " + statusCode + ": " + body);
-    if (attempt < CONFIG.MAX_RETRIES && (statusCode >= 500 || statusCode === 429)) {
+    Logger.warn("⚠️ Server returned HTTP " + statusCode + ": " + bodyText);
+    if (attempt < config.MAX_RETRIES && (statusCode >= 500 || statusCode === 429)) {
       Utilities.sleep(Math.pow(2, attempt) * 1000);
-      sendWithRetry(payload, attempt + 1);
+      return sendWithRetry(payload, attempt + 1, config);
     }
+    return { success: false, status: statusCode, body: bodyText };
   } catch (err) {
     Logger.error("❌ Network error: " + err.message);
-    if (attempt < CONFIG.MAX_RETRIES) {
+    if (attempt < config.MAX_RETRIES) {
       Utilities.sleep(Math.pow(2, attempt) * 1000);
-      sendWithRetry(payload, attempt + 1);
+      return sendWithRetry(payload, attempt + 1, config);
     }
+    return { success: false, error: err.message };
   }
+}
+
+/**
+ * Diagnostic test function: verifies Script Properties and endpoint connectivity.
+ */
+function testWebhook() {
+  var config = getConfig();
+  Logger.log("Target Webhook URL: " + config.ENDPOINT_URL);
+  Logger.log("Target Event ID: " + config.EVENT_ID);
+  Logger.log("Secret Configured: " + (config.WEBHOOK_SECRET ? "YES (length " + config.WEBHOOK_SECRET.length + ")" : "NO"));
+
+  if (!config.WEBHOOK_SECRET) {
+    Logger.error("❌ Cannot run test: WEBHOOK_SECRET is empty in Script Properties!");
+    return;
+  }
+
+  var testPayload = {
+    responseId: "GF-TEST-APPSCRIPT-" + new Date().getTime(),
+    formSubmittedAt: new Date().toISOString(),
+    timestamp: new Date().toISOString(),
+    email: "synthetic.apps.script@algoxilla.test",
+    fullName: "Synthetic Apps Script Test User",
+    phone: "+919876543210",
+    eventId: config.EVENT_ID,
+    answers: {
+      "Full Name": "Synthetic Apps Script Test User",
+      "Email Address": "synthetic.apps.script@algoxilla.test",
+      "College": "Algoxilla Test Institute"
+    }
+  };
+
+  var result = sendWithRetry(testPayload, 0, config);
+  Logger.log("Result: " + JSON.stringify(result));
 }
 ```
 
-4. Set up the installable trigger:
-   - Click the clock icon (**Triggers**) on the left toolbar.
-   - Click **Add Trigger** (bottom right).
+---
+
+### Step 2: Configure Script Properties
+In the Apps Script editor:
+1. Click **Project Settings** (gear icon on left sidebar).
+2. Scroll to **Script Properties** and click **Edit script properties**.
+3. Add the following three properties:
+   - `WEBHOOK_URL` = `https://algoxilla-certificate-platform-1.vercel.app/api/integrations/google-forms`
+   - `WEBHOOK_SECRET` = `<the exact secret configured in Vercel Production>`
+   - `EVENT_ID` = `ALGOTHON26`
+4. Click **Save script properties**.
+
+---
+
+### Step 3: Installable Trigger Configuration
+If using a Google Sheet with linked responses:
+1. In the Apps Script editor, click **Triggers** (alarm clock icon on left sidebar).
+2. Click **Add Trigger** (bottom right):
    - Choose which function to run: `onFormSubmit`
-   - Select event source: `From form`
+   - Which runs at deployment: `Head`
+   - Select event source: `From spreadsheet`
    - Select event type: `On form submit`
-   - Failure notification settings: `Notify me daily` or `immediately`
-   - Click **Save** and grant the required permissions (`UrlFetchApp` and `FormsApp`).
+   - Failure notification settings: `Notify me daily` (or immediately)
+3. Click **Save** and grant the required permissions (`SpreadsheetApp`, `UrlFetchApp`).
 
 ---
 
