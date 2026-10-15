@@ -14,7 +14,8 @@
     "test:security": "node test/test-security-authorization.mjs",
     "test:pilot": "node --env-file=.env.local test/test-synthetic-pilot.mjs",
     "test:allowlist": "node --env-file=.env.local test/test-email-allowlist.mjs",
-    "test:layout": "node test/test-participant-name-layout.mjs"
+    "test:layout": "node test/test-participant-name-layout.mjs",
+    "test:verification": "node test/test-verification-lookup.mjs"
   },
   "dependencies": {
     "@pdf-lib/fontkit": "^1.1.1",

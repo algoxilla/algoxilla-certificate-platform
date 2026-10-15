@@ -11,7 +11,13 @@ let supabaseAdminClient: SupabaseClient | null = null;
 let pgPool: pg.Pool | null = null;
 
 export function isSupabaseConfigured(): boolean {
-  const hasDbUrl = Boolean(process.env.DATABASE_URL || process.env.DIRECT_URL);
+  const hasDbUrl = Boolean(
+    process.env.DATABASE_URL ||
+    process.env.DIRECT_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING
+  );
   const hasSupabaseSdk = Boolean(
     (process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) &&
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -77,9 +83,16 @@ export function getPostgresPool(): pg.Pool {
     return pgPool;
   }
 
-  const rawUrl = process.env.DATABASE_URL || process.env.DIRECT_URL;
+  const rawUrl =
+    process.env.DATABASE_URL ||
+    process.env.DIRECT_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING;
   if (!rawUrl) {
-    throw new Error("PostgreSQL pool requires DATABASE_URL or DIRECT_URL environment variable.");
+    throw new Error(
+      "PostgreSQL pool requires DATABASE_URL, DIRECT_URL, or POSTGRES_URL environment variable."
+    );
   }
 
   const connectionString = sanitizePostgresUrl(rawUrl);

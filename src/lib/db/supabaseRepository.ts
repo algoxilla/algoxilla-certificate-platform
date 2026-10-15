@@ -23,7 +23,13 @@ export class SupabaseCertificateRepository {
   private useDirectPg: boolean;
 
   constructor() {
-    this.useDirectPg = Boolean(process.env.DATABASE_URL || process.env.DIRECT_URL);
+    this.useDirectPg = Boolean(
+      process.env.DATABASE_URL ||
+      process.env.DIRECT_URL ||
+      process.env.POSTGRES_URL ||
+      process.env.POSTGRES_PRISMA_URL ||
+      process.env.POSTGRES_URL_NON_POOLING
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -91,7 +97,15 @@ export class SupabaseCertificateRepository {
         .eq("certificate_code", normalizedCode)
         .single();
 
-      if (error || !data) return null;
+      if (error) {
+        if (error.code === "PGRST116") {
+          return null;
+        }
+        console.error(`[DB_LOOKUP_ERROR] Supabase SDK query failed for code ${normalizedCode}:`, error.message);
+        throw new Error(`Database query failed: ${error.message}`);
+      }
+
+      if (!data) return null;
 
       // Extract joined fields safely
       const reg = data.event_registrations as unknown as {
@@ -226,7 +240,15 @@ export class SupabaseCertificateRepository {
         .eq("email", cleanEmail)
         .single();
 
-      if (error || !part) return null;
+      if (error) {
+        if (error.code === "PGRST116") {
+          return null;
+        }
+        console.error("[DB_LOOKUP_ERROR] Supabase SDK query failed for participant:", error.message);
+        throw new Error(`Database query failed: ${error.message}`);
+      }
+
+      if (!part) return null;
 
       const regList = (part.event_registrations as unknown as Array<{
         id: string;
@@ -409,7 +431,14 @@ export class SupabaseCertificateRepository {
         .select("id, email, token_hash, token_type, attempts, max_attempts, expires_at, consumed_at, ip_address, created_at")
         .eq("token_hash", tokenHash)
         .single();
-      if (error || !data) return null;
+      if (error) {
+        if (error.code === "PGRST116") {
+          return null;
+        }
+        console.error("[DB_LOOKUP_ERROR] Supabase SDK query failed for claim token:", error.message);
+        throw new Error(`Database query failed: ${error.message}`);
+      }
+      if (!data) return null;
       return {
         id: data.id,
         email: data.email,

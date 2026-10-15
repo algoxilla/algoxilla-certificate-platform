@@ -35,6 +35,7 @@ export async function GET(
 
     // 1. Validate Code Format
     if (!rawCode || !CODE_FORMAT_REGEX.test(rawCode)) {
+      console.log(`[VERIFY_INVALID_FORMAT] Malformed certificate code rejected: "${rawCode.slice(0, 32)}"`);
       return NextResponse.json(
         {
           status: "INVALID_FORMAT",
@@ -47,6 +48,7 @@ export async function GET(
     }
 
     const normalizedCode = rawCode.toUpperCase();
+    console.log(`[VERIFY_REQUEST] Code: ${normalizedCode} (dbStatus: ${dbStatus})`);
 
     // 2. Query Authoritative Repository
     try {
@@ -55,6 +57,7 @@ export async function GET(
 
       if (cert) {
         const outcome: VerificationOutcome = cert.status as VerificationOutcome;
+        console.log(`[VERIFY_RESULT] Code: ${normalizedCode} => Outcome: ${outcome} (status 200)`);
         return NextResponse.json(
           {
             status: outcome,
@@ -83,6 +86,7 @@ export async function GET(
       if (!isProductionMode() && normalizedCode.startsWith("MOCK-")) {
         const mockMatch = findMockCertificateById(normalizedCode);
         if (mockMatch && mockMatch.certificateId) {
+          console.log(`[VERIFY_MOCK_FIXTURE] Code: ${normalizedCode} matched test fixture (status 200)`);
           return NextResponse.json(
             {
               status: "ISSUED",
@@ -107,6 +111,7 @@ export async function GET(
       // If database is configured (Supabase or production), and certificate was not found in database,
       // return NOT_FOUND with databaseIntegration: "CONNECTED" (Rule 9: authoritative registry check succeeded)
       if (hasDatabase) {
+        console.log(`[VERIFY_NOT_FOUND] Code: ${normalizedCode} not found in authoritative registry (status 200)`);
         return NextResponse.json(
           {
             status: "NOT_FOUND",
@@ -118,8 +123,11 @@ export async function GET(
         );
       }
     } catch (dbErr) {
+      console.error(
+        `[VERIFY_DB_ERROR] Database query failure for code ${normalizedCode}:`,
+        dbErr instanceof Error ? dbErr.message : String(dbErr)
+      );
       if (hasDatabase) {
-        console.error("Database unavailable during certificate verification:", dbErr);
         return NextResponse.json(
           {
             status: "INTERNAL_ERROR",
@@ -213,7 +221,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
-    console.error("Critical error in verification API:", error);
+    console.error("Critical error in verification API:", error instanceof Error ? error.message : String(error));
     return NextResponse.json(
       {
         status: "INTERNAL_ERROR",

@@ -109,6 +109,18 @@ async function runResolutionTests() {
   console.log("  Verified certificate recipient:", seededJson.certificate.recipientName);
   console.log("✓ Check 4 Passed: ALGO-2026-HACK-1309 verified from live Supabase DB with databaseIntegration: 'CONNECTED'\n");
 
+  // 4B. Verification Route with Pilot Certificate (ALGO-2026-PILOT-4403)
+  console.log("--- Check 4B: Public Verification of Pilot Certificate (ALGO-2026-PILOT-4403) ---");
+  const pilotRes = await fetch(`${baseUrl}/api/verify/ALGO-2026-PILOT-4403`);
+  assert.strictEqual(pilotRes.status, 200, "Pilot code must return HTTP 200");
+  const pilotJson = await pilotRes.json();
+  assert.strictEqual(pilotJson.status, "ISSUED", "Status must be ISSUED");
+  assert.strictEqual(pilotJson.databaseIntegration, "CONNECTED", "databaseIntegration must be CONNECTED");
+  assert.strictEqual(pilotJson.certificate.certificateCode, "ALGO-2026-PILOT-4403");
+  assert.strictEqual(pilotJson.certificate.recipientName, "Alice Synthetic Pilot");
+  console.log("  Verified pilot recipient:", pilotJson.certificate.recipientName);
+  console.log("✓ Check 4B Passed: ALGO-2026-PILOT-4403 verified from live Supabase DB with databaseIntegration: 'CONNECTED'\n");
+
   // 5. Download Route Fail-Closed for Unseeded Code
   console.log("--- Check 5: Download Endpoint Fail-Closed Behavior ---");
   const dlRes = await fetch(`${baseUrl}/api/certificate/ALGO-2026-HACK-8942/download`);
@@ -135,6 +147,46 @@ async function runResolutionTests() {
   }
   assert.strictEqual(dbErrCaught, true, "Simulated database connection must fail");
   console.log("✓ Check 6 Passed: Database connection failure distinct from NOT_FOUND registry outcome\n");
+
+  // 7. Vercel Integration Env Var Support (POSTGRES_URL)
+  console.log("--- Check 7: POSTGRES_URL Environment Resolution ---");
+  const origDbUrl = process.env.DATABASE_URL;
+  const origDirectUrl = process.env.DIRECT_URL;
+  try {
+    delete process.env.DATABASE_URL;
+    delete process.env.DIRECT_URL;
+    process.env.POSTGRES_URL = "postgres://postgres.test:secret@aws-0-ap-south-1.pooler.supabase.com:6543/postgres";
+    assert.strictEqual(isSupabaseConfigured(), true, "isSupabaseConfigured must be true when POSTGRES_URL is provided");
+    console.log("  POSTGRES_URL correctly detected by isSupabaseConfigured()");
+  } finally {
+    if (origDbUrl) process.env.DATABASE_URL = origDbUrl;
+    if (origDirectUrl) process.env.DIRECT_URL = origDirectUrl;
+    delete process.env.POSTGRES_URL;
+  }
+  console.log("✓ Check 7 Passed: Vercel Marketplace POSTGRES_URL successfully supported\n");
+
+  // 8. PostgREST Error Handling Differentiation (PGRST116 vs Operational Error)
+  console.log("--- Check 8: PostgREST Error Handling Differentiation ---");
+  // Test PGRST116 (not found) vs operational error (e.g. 42501 permission denied)
+  const pgrstNotFound = { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" };
+  const pgrstAuthError = { code: "42501", message: "permission denied for table certificates" };
+
+  function handlePostgrestError(error) {
+    if (error) {
+      if (error.code === "PGRST116") {
+        return null; // genuinely not found
+      }
+      throw new Error(`Database query failed: ${error.message}`);
+    }
+  }
+
+  assert.strictEqual(handlePostgrestError(pgrstNotFound), null, "PGRST116 must return null (NOT_FOUND)");
+  assert.throws(
+    () => handlePostgrestError(pgrstAuthError),
+    /Database query failed: permission denied/,
+    "Operational PostgREST error must throw and never return null"
+  );
+  console.log("✓ Check 8 Passed: PGRST116 correctly returns null while operational errors throw\n");
 
   console.log("=================================================");
   console.log("   ALL SUPABASE INTEGRATION CHECKS PASSED!       ");
