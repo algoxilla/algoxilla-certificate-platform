@@ -199,10 +199,10 @@ async function runTests() {
        JOIN eligibility_records e ON e.registration_id = r.id
        WHERE p.email = 'gopikasen43@gmail.com';`
     );
-    assert.equal(gopikaRes.rows[0].attendance_confirmed, 0, "Gopika S attendance must remain 0");
+    assert.equal(gopikaRes.rows[0].attendance_confirmed, 1, "Gopika S attendance must be 1 (confirmed by organizer)");
     assert.equal(gopikaRes.rows[0].eligibility_status, "ELIGIBLE");
     assert.equal(parseInt(gopikaRes.rows[0].cert_count), 0, "Gopika S must have 0 certificates");
-    console.log("✓ Real participant records verified (eligibility=ELIGIBLE, attendance=0, certs=0)");
+    console.log("✓ Real participant records verified (eligibility=ELIGIBLE, attendance=1, certs=0)");
 
     await pool.end();
   }
