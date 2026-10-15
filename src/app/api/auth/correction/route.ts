@@ -16,17 +16,31 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
+  let body: {
+    certificateId?: string;
+    requestedName?: string;
+    reason?: string;
+    supportingEvidence?: string;
+  };
+
   try {
-    const body = (await request.json()) as {
+    body = (await request.json()) as {
       certificateId?: string;
       requestedName?: string;
       reason?: string;
       supportingEvidence?: string;
     };
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid or malformed JSON request body." },
+      { status: 400 }
+    );
+  }
 
-    const certId = body.certificateId?.trim();
-    const reqName = body.requestedName?.trim();
-    const reason = body.reason?.trim();
+  try {
+    const certId = body?.certificateId?.trim();
+    const reqName = body?.requestedName?.trim();
+    const reason = body?.reason?.trim();
 
     if (!certId || !reqName || !reason) {
       return NextResponse.json(

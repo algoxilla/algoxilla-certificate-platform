@@ -14,9 +14,18 @@ import { findMockParticipantByEmail } from "@/lib/mockData";
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
 
 export async function POST(request: Request): Promise<NextResponse> {
+  let body: { email?: string };
   try {
-    const body = (await request.json()) as { email?: string };
-    const rawEmail = body.email?.trim() || "";
+    body = (await request.json()) as { email?: string };
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid or malformed JSON request body." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const rawEmail = body?.email?.trim() || "";
 
     if (!rawEmail || !EMAIL_REGEX.test(rawEmail)) {
       return NextResponse.json(
