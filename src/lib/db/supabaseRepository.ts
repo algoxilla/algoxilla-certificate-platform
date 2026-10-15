@@ -13,6 +13,7 @@ import type {
   EventRegistrationRecord,
   EligibilityRecord,
   CertificateType,
+  ApproveEligibilityParams,
 } from "./types.ts";
 
 function normalizeEmail(email: string): string {
@@ -673,6 +674,144 @@ export class SupabaseCertificateRepository {
       createdAt: now,
       updatedAt: now,
     };
+  }
+
+  public async approveEligibility(params: ApproveEligibilityParams): Promise<EligibilityRecord> {
+    const now = new Date().toISOString();
+    const actorRole = params.actorRole || "ORGANIZER";
+    const notes = params.reviewNotes || "Organizer confirmed eligibility";
+
+    if (this.useDirectPg) {
+      const pool = getPostgresPool();
+      let query = "SELECT * FROM eligibility_records WHERE ";
+      let paramVal: string;
+      if (params.eligibilityId) {
+        query += "id = $1";
+        paramVal = params.eligibilityId;
+      } else if (params.registrationId) {
+        query += "registration_id = $1";
+        paramVal = params.registrationId;
+      } else {
+        throw new Error("Must provide either registrationId or eligibilityId.");
+      }
+
+      const existingRes = await pool.query(query, [paramVal]);
+      if (existingRes.rows.length === 0) {
+        throw new Error("Eligibility record not found.");
+      }
+      const existing = existingRes.rows[0];
+
+      const newAttendance = params.attendanceConfirmed !== undefined 
+        ? (params.attendanceConfirmed ? 1 : 0) 
+        : Number(existing.attendance_confirmed);
+
+      await pool.query(
+        `UPDATE eligibility_records
+         SET eligibility_status = 'ELIGIBLE',
+             attendance_confirmed = $1,
+             review_decision_by = $2,
+             review_notes = $3,
+             reviewed_at = $4,
+             updated_at = $4
+         WHERE id = $5`,
+        [newAttendance, params.actorId, notes, now, existing.id]
+      );
+
+      const previousState = JSON.stringify({
+        eligibility_status: existing.eligibility_status,
+        attendance_confirmed: existing.attendance_confirmed,
+        review_decision_by: existing.review_decision_by,
+        reviewed_at: existing.reviewed_at,
+        review_notes: existing.review_notes,
+      });
+      const newState = JSON.stringify({
+        eligibility_status: "ELIGIBLE",
+        attendance_confirmed: newAttendance,
+        review_decision_by: params.actorId,
+        reviewed_at: now,
+        review_notes: notes,
+      });
+
+      await pool.query(
+        `INSERT INTO audit_logs (id, actor_id, actor_role, action, target_entity, target_id, previous_state, new_state, timestamp)
+         VALUES ($1, $2, $3, 'ELIGIBILITY_APPROVED', 'eligibility_records', $4, $5, $6, $7)`,
+        [crypto.randomUUID(), params.actorId, actorRole, existing.id, previousState, newState, now]
+      );
+
+      return {
+        id: existing.id,
+        registrationId: existing.registration_id,
+        eligibilityStatus: "ELIGIBLE",
+        attendanceConfirmed: Boolean(newAttendance),
+        reviewDecisionBy: params.actorId,
+        reviewNotes: notes,
+        reviewedAt: now,
+        createdAt: existing.created_at,
+        updatedAt: now,
+      };
+    } else {
+      const supabase = getSupabaseAdminClient();
+      let query = supabase.from("eligibility_records").select("*");
+      if (params.eligibilityId) {
+        query = query.eq("id", params.eligibilityId);
+      } else if (params.registrationId) {
+        query = query.eq("registration_id", params.registrationId);
+      } else {
+        throw new Error("Must provide either registrationId or eligibilityId.");
+      }
+
+      const { data: existing, error: findErr } = await query.single();
+      if (findErr || !existing) {
+        throw new Error(`Eligibility record not found: ${findErr?.message || "Not found"}`);
+      }
+
+      const newAttendance = params.attendanceConfirmed !== undefined 
+        ? (params.attendanceConfirmed ? 1 : 0) 
+        : Number(existing.attendance_confirmed);
+
+      const { error: updateErr } = await supabase
+        .from("eligibility_records")
+        .update({
+          eligibility_status: "ELIGIBLE",
+          attendance_confirmed: newAttendance,
+          review_decision_by: params.actorId,
+          review_notes: notes,
+          reviewed_at: now,
+          updated_at: now,
+        })
+        .eq("id", existing.id);
+
+      if (updateErr) throw new Error(`Supabase update error: ${updateErr.message}`);
+
+      await this.logAudit({
+        entityType: "eligibility_records",
+        entityId: existing.id,
+        action: "ELIGIBILITY_APPROVED",
+        actorType: actorRole,
+        actorId: params.actorId,
+        oldState: JSON.stringify(existing),
+        newState: JSON.stringify({
+          ...existing,
+          eligibility_status: "ELIGIBLE",
+          attendance_confirmed: newAttendance,
+          review_decision_by: params.actorId,
+          review_notes: notes,
+          reviewed_at: now,
+        }),
+      });
+
+      return {
+        id: existing.id,
+        registrationId: existing.registration_id,
+        eligibilityStatus: "ELIGIBLE",
+        attendanceConfirmed: Boolean(newAttendance),
+        reviewDecisionBy: params.actorId,
+        reviewNotes: notes,
+        reviewedAt: now,
+        createdAt: existing.created_at,
+        updatedAt: now,
+      };
+    }
   }
 
   public async logAudit(params: {

@@ -20,6 +20,7 @@ import type {
   ImportCommitResult,
   RevokeCertificateParams,
   ReissueCertificateParams,
+  ApproveEligibilityParams,
 } from "./types.ts";
 
 function normalizeEmail(email: string): string {
@@ -622,6 +623,84 @@ export class CertificateRepository {
         reissueCount: oldCert.reissueCount + 1,
         issuedAt: now,
         createdAt: now,
+        updatedAt: now,
+      };
+    } catch (err) {
+      this.db.exec("ROLLBACK;");
+      throw err;
+    }
+  }
+
+  /**
+   * Approves participant eligibility with immutable audit logging.
+   * By default preserves existing attendance_confirmed unless explicitly overridden.
+   */
+  public approveEligibility(params: ApproveEligibilityParams): EligibilityRecord {
+    const now = new Date().toISOString();
+    const actorRole = params.actorRole || "ORGANIZER";
+    const notes = params.reviewNotes || "Organizer confirmed eligibility";
+
+    let row: Record<string, unknown> | undefined;
+    if (params.eligibilityId) {
+      row = this.db.prepare("SELECT * FROM eligibility_records WHERE id = ?").get(params.eligibilityId) as Record<string, unknown> | undefined;
+    } else if (params.registrationId) {
+      row = this.db.prepare("SELECT * FROM eligibility_records WHERE registration_id = ?").get(params.registrationId) as Record<string, unknown> | undefined;
+    } else {
+      throw new Error("Must provide either registrationId or eligibilityId.");
+    }
+
+    if (!row) {
+      throw new Error("Eligibility record not found.");
+    }
+
+    const newAttendance = params.attendanceConfirmed !== undefined 
+      ? (params.attendanceConfirmed ? 1 : 0) 
+      : Number(row.attendance_confirmed);
+
+    this.db.exec("BEGIN TRANSACTION;");
+    try {
+      this.db.prepare(`
+        UPDATE eligibility_records
+        SET eligibility_status = 'ELIGIBLE',
+            attendance_confirmed = ?,
+            review_decision_by = ?,
+            review_notes = ?,
+            reviewed_at = ?,
+            updated_at = ?
+        WHERE id = ?
+      `).run(newAttendance, params.actorId, notes, now, now, row.id);
+
+      const previousState = JSON.stringify({
+        eligibility_status: row.eligibility_status,
+        attendance_confirmed: row.attendance_confirmed,
+        review_decision_by: row.review_decision_by,
+        reviewed_at: row.reviewed_at,
+        review_notes: row.review_notes,
+      });
+      const newState = JSON.stringify({
+        eligibility_status: "ELIGIBLE",
+        attendance_confirmed: newAttendance,
+        review_decision_by: params.actorId,
+        reviewed_at: now,
+        review_notes: notes,
+      });
+
+      this.db.prepare(`
+        INSERT INTO audit_logs (id, actor_id, actor_role, action, target_entity, target_id, previous_state, new_state, timestamp)
+        VALUES (?, ?, ?, 'ELIGIBILITY_APPROVED', 'eligibility_records', ?, ?, ?, ?)
+      `).run(crypto.randomUUID(), params.actorId, actorRole, row.id, previousState, newState, now);
+
+      this.db.exec("COMMIT;");
+
+      return {
+        id: row.id as string,
+        registrationId: row.registration_id as string,
+        eligibilityStatus: "ELIGIBLE",
+        attendanceConfirmed: Boolean(newAttendance),
+        reviewDecisionBy: params.actorId,
+        reviewNotes: notes,
+        reviewedAt: now,
+        createdAt: row.created_at as string,
         updatedAt: now,
       };
     } catch (err) {

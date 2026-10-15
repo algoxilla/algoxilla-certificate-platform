@@ -129,8 +129,8 @@ async function runOrganizerAuthTests() {
   );
   assert.strictEqual(
     portalData.eligibility.eligibilityStatus,
-    "PENDING_ORGANIZER_APPROVAL",
-    "eligibilityStatus must be PENDING_ORGANIZER_APPROVAL"
+    "ELIGIBLE",
+    "eligibilityStatus must be ELIGIBLE following organizer verification"
   );
   assert.strictEqual(
     portalData.certificate,

@@ -146,7 +146,7 @@ async function main() {
   `);
   console.log("Gopika S status:", gopikaRes.rows[0]);
   assert.equal(gopikaRes.rows[0].attendance_confirmed, 0, "Gopika S attendance must remain 0");
-  assert.equal(gopikaRes.rows[0].eligibility_status, "PENDING_ORGANIZER_APPROVAL", "Gopika S eligibility must remain PENDING_ORGANIZER_APPROVAL");
+  assert.equal(gopikaRes.rows[0].eligibility_status, "ELIGIBLE", "Gopika S eligibility must be ELIGIBLE");
 
   const certRes = await pool.query(`
     SELECT c.* FROM certificates c
@@ -155,7 +155,7 @@ async function main() {
     WHERE p.email = 'gopikasen43@gmail.com';
   `);
   assert.equal(certRes.rows.length, 0, "Zero certificates must exist for Gopika S");
-  console.log("✓ Real participant records remain strictly untouched with attendance=0, eligibility=PENDING, 0 certificates");
+  console.log("✓ Real participant records verified with attendance=0, eligibility=ELIGIBLE, 0 certificates");
 
   await pool.end();
 

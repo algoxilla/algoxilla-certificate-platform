@@ -206,6 +206,15 @@ export interface ReissueCertificateParams {
   actorId: string;
 }
 
+export interface ApproveEligibilityParams {
+  registrationId?: string;
+  eligibilityId?: string;
+  actorId: string;
+  actorRole?: string;
+  reviewNotes?: string;
+  attendanceConfirmed?: boolean;
+}
+
 // Public Server-Side Verification Endpoint Contract
 export type VerificationOutcome = "ISSUED" | "REVOKED" | "REPLACED" | "NOT_FOUND" | "INTERNAL_ERROR" | "INVALID_FORMAT";
 
