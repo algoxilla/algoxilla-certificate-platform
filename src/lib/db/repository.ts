@@ -68,6 +68,10 @@ export class CertificateRepository {
     this.initializeSchema();
   }
 
+  public get rawDb(): DatabaseSync {
+    return this.db;
+  }
+
   /**
    * Reads and executes the canonical schema DDL.
    */

@@ -8,6 +8,7 @@ interface RateLimitEntry {
 const ipMap = new Map<string, RateLimitEntry>();
 const emailMap = new Map<string, RateLimitEntry>();
 const downloadMap = new Map<string, RateLimitEntry>();
+const webhookMap = new Map<string, RateLimitEntry>();
 
 // Maximum limits
 const IP_CLAIM_LIMIT = 5; // 5 claim requests
@@ -18,6 +19,9 @@ const EMAIL_CLAIM_WINDOW_MS = 15 * 60 * 1000; // per 15 minutes
 
 const IP_DOWNLOAD_LIMIT = 10; // 10 PDF downloads
 const IP_DOWNLOAD_WINDOW_MS = 60 * 1000; // per minute
+
+const WEBHOOK_LIMIT = 60; // 60 webhook submissions
+const WEBHOOK_WINDOW_MS = 60 * 1000; // per 1 minute
 
 function checkSlidingWindow(
   map: Map<string, RateLimitEntry>,
@@ -88,10 +92,18 @@ export function checkDownloadRateLimit(ip: string): { allowed: boolean; retryAft
 }
 
 /**
+ * Checks rate limits for incoming Google Forms webhook submissions by IP.
+ */
+export function checkWebhookRateLimit(ip: string): { allowed: boolean; retryAfterSeconds?: number } {
+  return checkSlidingWindow(webhookMap, ip || "unknown_ip", WEBHOOK_LIMIT, WEBHOOK_WINDOW_MS);
+}
+
+/**
  * Clears in-memory rate limit maps (used for test environments).
  */
 export function resetRateLimitsForTesting(): void {
   ipMap.clear();
   emailMap.clear();
   downloadMap.clear();
+  webhookMap.clear();
 }

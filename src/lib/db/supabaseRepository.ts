@@ -693,19 +693,18 @@ export class SupabaseCertificateRepository {
       if (this.useDirectPg) {
         const pool = getPostgresPool();
         await pool.query(
-          `INSERT INTO audit_logs (id, entity_type, entity_id, action, actor_type, actor_id, old_state, new_state, ip_address, user_agent, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+          `INSERT INTO audit_logs (id, actor_id, actor_role, action, target_entity, target_id, previous_state, new_state, ip_address, timestamp)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [
             id,
+            params.actorId || "SYSTEM",
+            params.actorType || "SYSTEM",
+            params.action,
             params.entityType,
             params.entityId,
-            params.action,
-            params.actorType || "SYSTEM",
-            params.actorId || null,
             params.oldState || null,
             params.newState || null,
             params.ipAddress || null,
-            params.userAgent || null,
             now,
           ]
         );
@@ -713,16 +712,15 @@ export class SupabaseCertificateRepository {
         const supabase = getSupabaseAdminClient();
         await supabase.from("audit_logs").insert({
           id,
-          entity_type: params.entityType,
-          entity_id: params.entityId,
+          actor_id: params.actorId || "SYSTEM",
+          actor_role: params.actorType || "SYSTEM",
           action: params.action,
-          actor_type: params.actorType || "SYSTEM",
-          actor_id: params.actorId || null,
-          old_state: params.oldState || null,
+          target_entity: params.entityType,
+          target_id: params.entityId,
+          previous_state: params.oldState || null,
           new_state: params.newState || null,
           ip_address: params.ipAddress || null,
-          user_agent: params.userAgent || null,
-          created_at: now,
+          timestamp: now,
         });
       }
     } catch (err) {
