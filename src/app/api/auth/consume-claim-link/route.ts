@@ -7,13 +7,15 @@ import { getCertificateRepository, isProductionMode } from "@/lib/db/client";
 import { hashClaimToken, isTokenExpired } from "@/lib/auth/token";
 import { createSignedSessionToken, serializeSessionCookie } from "@/lib/auth/session";
 import { findMockParticipantByEmail } from "@/lib/mockData";
+import { getPublicAppUrl } from "@/lib/config";
 
 export async function GET(request: Request): Promise<NextResponse> {
   const url = new URL(request.url);
   const rawToken = url.searchParams.get("token")?.trim();
 
   const redirectError = (errorMsg: string, errorCode: string) => {
-    const errorUrl = new URL("/portal", request.url);
+    const baseUrl = getPublicAppUrl();
+    const errorUrl = new URL("/portal", baseUrl);
     errorUrl.searchParams.set("error", errorCode);
     errorUrl.searchParams.set("message", errorMsg);
     return NextResponse.redirect(errorUrl);
@@ -97,7 +99,8 @@ export async function GET(request: Request): Promise<NextResponse> {
     const cookieHeader = serializeSessionCookie(sessionToken);
 
     // Successful authentication: redirect to /portal with success indicator
-    const successUrl = new URL("/portal", request.url);
+    const baseUrl = getPublicAppUrl();
+    const successUrl = new URL("/portal", baseUrl);
     successUrl.searchParams.set("verified", "true");
 
     const response = NextResponse.redirect(successUrl);

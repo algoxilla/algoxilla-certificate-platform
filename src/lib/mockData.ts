@@ -19,7 +19,7 @@ export interface MockParticipant {
   verificationHash?: string;
   hasCorrectionPending?: boolean;
   correctionNote?: string;
-  isMock: true;
+  isMock?: boolean;
 }
 
 export interface MockCorrectionRequest {

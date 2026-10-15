@@ -4,8 +4,8 @@
 
 export function canonicalizeUrl(url: string): string {
   const trimmed = url.trim().replace(/\/+$/, "");
-  // Canonicalize ephemeral Vercel preview deployment hashes for this project to stable canonical production URL
-  if (/^https:\/\/algoxilla-certificate-platform-1-[a-z0-9]+(-[a-z0-9]+)?\.vercel\.app$/i.test(trimmed)) {
+  // Canonicalize any ephemeral Vercel deployment hashes or preview aliases for this platform to stable canonical production URL
+  if (/^https:\/\/(?:www\.)?algoxilla-certificate-platform(?:-[a-z0-9]+)*\.vercel\.app$/i.test(trimmed)) {
     return "https://algoxilla-certificate-platform-1.vercel.app";
   }
   // Canonicalize legacy or unverified verify.algoxilla.com (which lacks DNS records) to active production URL
@@ -15,29 +15,55 @@ export function canonicalizeUrl(url: string): string {
   return trimmed;
 }
 
-export function getAppBaseUrl(preferPublicDomain = false): string {
-  // 1. Explicit verification URL configuration takes highest precedence for QR codes
-  if (process.env.NEXT_PUBLIC_VERIFY_BASE_URL) {
-    return canonicalizeUrl(process.env.NEXT_PUBLIC_VERIFY_BASE_URL);
-  }
+/**
+ * Server and client production environment detector.
+ */
+export function isProductionEnvironment(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.APP_LIVE === "true" ||
+    process.env.NEXT_PUBLIC_APP_LIVE === "true"
+  );
+}
 
-  // 2. Configured public application URL (e.g. staging or production origin)
+/**
+ * Returns the public application base URL for application routes, claim links, and auth redirects.
+ * Strictly decoupled from NEXT_PUBLIC_VERIFY_BASE_URL (which is reserved for public QR code verification).
+ */
+export function getPublicAppUrl(): string {
+  // 1. Configured public application URL (e.g. staging or production origin)
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return canonicalizeUrl(process.env.NEXT_PUBLIC_APP_URL);
   }
 
-  // 3. Browser-side runtime window origin (if executed on client)
-  if (!preferPublicDomain && typeof window !== "undefined" && window.location.origin) {
+  // 2. Browser-side runtime window origin (if executed on client)
+  if (typeof window !== "undefined" && window.location.origin) {
     return canonicalizeUrl(window.location.origin);
   }
 
-  // 4. Default public canonical domain when preferPublicDomain is true
-  if (preferPublicDomain) {
+  // 3. Fallback to canonical production URL in production mode
+  if (isProductionEnvironment()) {
     return "https://algoxilla-certificate-platform-1.vercel.app";
   }
 
-  // 5. Safe local development / staging fallback
+  // 4. Safe local development fallback
   return "http://localhost:3000";
+}
+
+export function getAppBaseUrl(preferPublicDomain = false): string {
+  // If public domain is preferred (e.g. for QR codes / verification links):
+  if (preferPublicDomain) {
+    if (process.env.NEXT_PUBLIC_VERIFY_BASE_URL) {
+      return canonicalizeUrl(process.env.NEXT_PUBLIC_VERIFY_BASE_URL);
+    }
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      return canonicalizeUrl(process.env.NEXT_PUBLIC_APP_URL);
+    }
+    return "https://algoxilla-certificate-platform-1.vercel.app";
+  }
+
+  // Application routes default to public application base URL
+  return getPublicAppUrl();
 }
 
 export function isLocalDevUrl(url: string): boolean {

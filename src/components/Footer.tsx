@@ -72,14 +72,16 @@ export default function Footer() {
           </ul>
         </div>
 
-        {/* Phase 1 Specification Notice */}
+        {/* Platform Notice */}
         <div className="space-y-2 text-xs">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-red-400 flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Phase 1 Isolation Notice
+            {process.env.NODE_ENV === "production" ? "Security & Authenticity Notice" : "Phase 1 Isolation Notice"}
           </h3>
           <p className="text-neutral-500 leading-relaxed">
-            This deployment runs under strict Phase 1 specifications. No real participant databases, SMTP mailers, or live certificate signing keys are active. All data presented is labelled mock data.
+            {process.env.NODE_ENV === "production"
+              ? "Official credential verification and retrieval platform for Algoxilla. Real-time cryptographic validation powered by Supabase PostgreSQL."
+              : "This deployment runs under strict Phase 1 specifications. No real participant databases, SMTP mailers, or live certificate signing keys are active. All data presented is labelled mock data."}
           </p>
           <div className="inline-block px-2.5 py-1 rounded bg-neutral-900 border border-neutral-800 text-[10px] font-mono text-neutral-400">
             Next.js App Router • Tailwind v4 • TS
@@ -95,7 +97,7 @@ export default function Footer() {
           </span>
           <span className="text-neutral-600">•</span>
           <span className="text-[11px] font-mono text-emerald-500">
-            Status: Phase 1 Ready
+            {process.env.NODE_ENV === "production" ? "Status: Production Ready" : "Status: Phase 1 Ready"}
           </span>
         </div>
       </div>

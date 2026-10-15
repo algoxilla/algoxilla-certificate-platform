@@ -6,6 +6,11 @@ import { X, ShieldAlert } from "lucide-react";
 export default function MockDataBanner() {
   const [visible, setVisible] = useState(true);
 
+  // Strictly suppressed in production builds
+  if (process.env.NODE_ENV === "production") {
+    return null;
+  }
+
   if (!visible) return null;
 
   return (

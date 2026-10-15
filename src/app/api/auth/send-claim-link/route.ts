@@ -8,7 +8,7 @@ import { getCertificateRepository, isProductionMode } from "@/lib/db/client";
 import { generateRawClaimToken, hashClaimToken, calculateTokenExpiry } from "@/lib/auth/token";
 import { checkClaimRateLimit } from "@/lib/auth/rateLimit";
 import { brevoService } from "@/lib/email/brevo";
-import { getAppBaseUrl } from "@/lib/config";
+import { getPublicAppUrl } from "@/lib/config";
 import { findMockParticipantByEmail } from "@/lib/mockData";
 
 const EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
@@ -99,7 +99,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
 
     // 4. Construct Secure Claim URL
-    const baseUrl = getAppBaseUrl(false);
+    const baseUrl = getPublicAppUrl();
     const claimUrl = `${baseUrl}/api/auth/consume-claim-link?token=${encodeURIComponent(rawToken)}`;
 
     // 5. Dispatch via Brevo

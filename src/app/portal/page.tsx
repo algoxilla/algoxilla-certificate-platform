@@ -37,7 +37,7 @@ function PortalContent() {
 
   // Wizard state: 1 = Email Input, 2 = Claim Link Dispatched, 3 = Certificate View, 0 = Ineligible/Error
   const [step, setStep] = useState<number>(1);
-  const [email, setEmail] = useState<string>("alex.chen@example.com");
+  const [email, setEmail] = useState<string>("");
   const [emailError, setEmailError] = useState<string | null>(initialEmailError);
   const [isSending, setIsSending] = useState<boolean>(false);
   const [resendCooldown, setResendCooldown] = useState<number>(0);
@@ -77,7 +77,7 @@ function PortalContent() {
             verificationHash: data.certificate?.verificationHash || "sha256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069",
             hasCorrectionPending: Boolean(data.correction),
             correctionNote: data.correction ? `Requested change to "${data.correction.requestedName}" is under organizer review.` : undefined,
-            isMock: true,
+            isMock: false,
           };
           setParticipant(mappedParticipant);
           setStep(3); // Authenticated -> View Certificate
@@ -141,10 +141,12 @@ function PortalContent() {
         return;
       }
 
-      // Check synthetic mock fallback for offline dev demo
-      const matched = findMockParticipantByEmail(cleanEmail);
-      if (matched) {
-        setParticipant(matched);
+      // Check synthetic mock fallback for offline dev demo only
+      if (process.env.NODE_ENV !== "production") {
+        const matched = findMockParticipantByEmail(cleanEmail);
+        if (matched) {
+          setParticipant(matched);
+        }
       }
 
       setStep(2); // Proceed to "Check Your Inbox"
@@ -153,13 +155,17 @@ function PortalContent() {
       setNotification(data.message || "A secure, single-use claim link has been dispatched to your inbox.");
     } catch {
       // In purely local development without network, allow demo progression
-      const matched = findMockParticipantByEmail(cleanEmail);
-      if (matched) {
-        setParticipant(matched);
-        setStep(2);
-        setTimerSeconds(900);
+      if (process.env.NODE_ENV !== "production") {
+        const matched = findMockParticipantByEmail(cleanEmail);
+        if (matched) {
+          setParticipant(matched);
+          setStep(2);
+          setTimerSeconds(900);
+        } else {
+          setStep(0);
+        }
       } else {
-        setStep(0);
+        setEmailError("Failed to dispatch claim link. Please try again.");
       }
     } finally {
       setIsSending(false);
@@ -323,41 +329,43 @@ function PortalContent() {
             </form>
 
             {/* Quick Demo Pre-fills for Development & Staging */}
-            <div className="pt-2 border-t border-neutral-800/80 space-y-2">
-              <span className="text-[11px] font-mono text-neutral-500 block">
-                Quick-fill demo profiles (Development & Testing):
-              </span>
-              <div className="flex flex-wrap gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setEmail("alex.chen@example.com")}
-                  className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:border-red-500/50 text-[11px]"
-                >
-                  ✓ Alex Chen (Eligible)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEmail("priya.sharma@example.com")}
-                  className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:border-red-500/50 text-[11px]"
-                >
-                  ✓ Priya Sharma (Correction Pending)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEmail("david.kim@example.com")}
-                  className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-amber-300 hover:border-amber-500/50 text-[11px]"
-                >
-                  ⏳ David Kim (Pending Review)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEmail("unregistered@example.com")}
-                  className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-400 hover:border-red-500/50 text-[11px]"
-                >
-                  ✗ Unregistered (Test)
-                </button>
+            {process.env.NODE_ENV !== "production" && (
+              <div className="pt-2 border-t border-neutral-800/80 space-y-2">
+                <span className="text-[11px] font-mono text-neutral-500 block">
+                  Quick-fill demo profiles (Development & Testing):
+                </span>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setEmail("alex.chen@example.com")}
+                    className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:border-red-500/50 text-[11px]"
+                  >
+                    ✓ Alex Chen (Eligible)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmail("priya.sharma@example.com")}
+                    className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 hover:border-red-500/50 text-[11px]"
+                  >
+                    ✓ Priya Sharma (Correction Pending)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmail("david.kim@example.com")}
+                    className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-amber-300 hover:border-amber-500/50 text-[11px]"
+                  >
+                    ⏳ David Kim (Pending Review)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmail("unregistered@example.com")}
+                    className="px-2.5 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-400 hover:border-red-500/50 text-[11px]"
+                  >
+                    ✗ Unregistered (Test)
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -406,29 +414,31 @@ function PortalContent() {
             </div>
 
             {/* Development / Staging Quick Action Button */}
-            <div className="pt-2 border-t border-neutral-800 space-y-2">
-              <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-400 flex items-center justify-between">
-                <span>[Dev Mode / Test Shortcut]:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    // Simulate instant unlock for Alex Chen in development
-                    if (participant) {
-                      setStep(3);
-                    } else {
-                      const matched = findMockParticipantByEmail("alex.chen@example.com");
-                      if (matched) {
-                        setParticipant(matched);
+            {process.env.NODE_ENV !== "production" && (
+              <div className="pt-2 border-t border-neutral-800 space-y-2">
+                <div className="p-3 rounded-lg bg-neutral-950 border border-neutral-800 text-[11px] font-mono text-neutral-400 flex items-center justify-between">
+                  <span>[Dev Mode / Test Shortcut]:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Simulate instant unlock for Alex Chen in development
+                      if (participant) {
                         setStep(3);
+                      } else {
+                        const matched = findMockParticipantByEmail("alex.chen@example.com");
+                        if (matched) {
+                          setParticipant(matched);
+                          setStep(3);
+                        }
                       }
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white font-sans text-xs font-medium cursor-pointer"
-                >
-                  Instant Unlock (Simulate Click)
-                </button>
+                    }}
+                    className="px-2.5 py-1 rounded bg-neutral-800 hover:bg-neutral-700 text-white font-sans text-xs font-medium cursor-pointer"
+                  >
+                    Instant Unlock (Simulate Click)
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex items-center gap-3">
               <button
