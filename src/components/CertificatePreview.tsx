@@ -12,7 +12,8 @@ import {
   Sparkles, 
   FileText,
   CheckCircle2,
-  Lock
+  Lock,
+  AlertCircle
 } from "lucide-react";
 import { generateMockCertificatePdf } from "@/lib/generateMockPdf";
 import { calculateParticipantNameLayout } from "@/lib/certificateLayout";
@@ -41,25 +42,44 @@ export default function CertificatePreview({
   const [viewMode, setViewMode] = useState<"rendered" | "reference">(defaultViewMode);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadStep, setDownloadStep] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [lastDocumentHash, setLastDocumentHash] = useState<string | null>(null);
   const nameLayout = calculateParticipantNameLayout(recipientName);
 
   // Dedicated Handler: Download Official Personalized PDF via server download route
   const handleDownloadOfficial = async () => {
     setIsDownloading(true);
+    setDownloadError(null);
     setDownloadStep("Requesting official certificate from registry...");
     try {
       const response = await fetch(`/api/certificate/${encodeURIComponent(certificateId)}/download`);
 
       if (!response.ok) {
-        let errorMsg = "Failed to generate official certificate PDF.";
+        let errorMsg = `Download failed (HTTP ${response.status}).`;
         try {
           const errorData = await response.json();
-          if (errorData.error) errorMsg = errorData.error;
+          if (errorData && errorData.error) {
+            errorMsg = errorData.error;
+          }
         } catch {
-          // ignore parsing error if response is not JSON
+          if (response.status === 401) {
+            errorMsg = "Your session has expired. Please verify your claim link again to download your certificate.";
+          } else if (response.status === 403) {
+            errorMsg = "You are not authorized to download this participant's certificate.";
+          } else if (response.status === 404) {
+            errorMsg = "Certificate record was not found in the official registry.";
+          } else if (response.status === 429) {
+            errorMsg = "Download rate limit exceeded. Please wait a moment before retrying.";
+          } else {
+            errorMsg = "Failed to generate official certificate PDF. Please retry or contact support.";
+          }
         }
         throw new Error(errorMsg);
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/pdf")) {
+        throw new Error("Received an unexpected response format from the server. Expected official PDF document.");
       }
 
       setDownloadStep("Validating cryptographic signature & hashes...");
@@ -84,7 +104,7 @@ export default function CertificatePreview({
     } catch (err: unknown) {
       console.error("Official PDF download error:", err);
       const message = err instanceof Error ? err.message : "Failed to generate official certificate PDF. Please retry or contact support.";
-      alert(message);
+      setDownloadError(message);
     } finally {
       setIsDownloading(false);
       setDownloadStep(null);
@@ -186,6 +206,21 @@ export default function CertificatePreview({
           )}
         </div>
       </div>
+
+      {downloadError && (
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{downloadError}</span>
+          </div>
+          <button
+            onClick={() => setDownloadError(null)}
+            className="text-neutral-400 hover:text-white text-xs px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 transition-colors shrink-0 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Mode 1: Authentic Master Reference Image with Personalized Overlay */}
       {viewMode === "reference" ? (

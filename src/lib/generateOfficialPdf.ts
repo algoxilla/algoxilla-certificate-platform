@@ -13,7 +13,7 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import QRCode from "qrcode";
 import crypto from "node:crypto";
-import { getVerificationUrl, isLocalDevUrl } from "./config.ts";
+import { getVerificationUrl, isLocalDevUrl, getPublicAppUrl } from "./config.ts";
 import { calculateParticipantNameLayout } from "./certificateLayout.ts";
 
 export interface GenerateOfficialPdfOptions {
@@ -36,12 +36,20 @@ export interface OfficialCertificatePdfResult {
   recipientName: string;
 }
 
+// In-memory cache for loaded asset buffers across serverless container lifecycle
+const assetBufferCache = new Map<string, Uint8Array>();
+
 /**
  * Isomorphically loads an asset buffer in either Node.js or browser environments.
- * Checks multiple candidate paths for robust execution across serverless/standalone runtimes.
+ * Checks multiple candidate paths and falls back to CDN fetch for robust execution across serverless runtimes.
  */
 async function loadAssetBuffer(relativePath: string): Promise<Uint8Array> {
   const cleanPath = relativePath.replace(/^\//, "");
+
+  if (assetBufferCache.has(cleanPath)) {
+    return assetBufferCache.get(cleanPath)!;
+  }
+
   if (typeof window === "undefined") {
     const fs = await import("node:fs");
     const path = await import("node:path");
@@ -49,13 +57,42 @@ async function loadAssetBuffer(relativePath: string): Promise<Uint8Array> {
     const candidatePaths = [
       path.join(process.cwd(), "public", cleanPath),
       path.join(process.cwd(), ".next", "standalone", "public", cleanPath),
+      path.resolve(process.cwd(), "public", cleanPath),
       path.resolve("public", cleanPath),
+      path.join(process.cwd(), cleanPath),
+      path.resolve(cleanPath),
     ];
 
     for (const p of candidatePaths) {
-      if (fs.existsSync(p)) {
-        return new Uint8Array(fs.readFileSync(p));
+      try {
+        if (fs.existsSync(p)) {
+          const buf = new Uint8Array(fs.readFileSync(p));
+          assetBufferCache.set(cleanPath, buf);
+          return buf;
+        }
+      } catch {
+        // Continue searching other candidate paths
       }
+    }
+
+    // Serverless Fallback: When executed inside cloud serverless environments (e.g. AWS Lambda / Vercel Functions)
+    // where static assets are served from the public CDN rather than the function's local disk,
+    // fetch the asset directly from the public application URL.
+    try {
+      const publicBase = getPublicAppUrl();
+      const assetUrl = `${publicBase}/${cleanPath}`;
+      console.warn(`[PDF_ASSET_LOADER] Local file not found on disk, fetching from public CDN: ${assetUrl}`);
+      const res = await fetch(assetUrl);
+      if (res.ok) {
+        const arrayBuf = await res.arrayBuffer();
+        const buf = new Uint8Array(arrayBuf);
+        assetBufferCache.set(cleanPath, buf);
+        return buf;
+      } else {
+        console.error(`[PDF_ASSET_LOADER] CDN fetch failed with status ${res.status} for ${assetUrl}`);
+      }
+    } catch (fetchErr) {
+      console.error(`[PDF_ASSET_LOADER] Failed to fetch asset from CDN for ${cleanPath}:`, fetchErr);
     }
 
     throw new Error(`Master asset not found at any candidate path: ${candidatePaths.join(" | ")}`);
@@ -65,7 +102,9 @@ async function loadAssetBuffer(relativePath: string): Promise<Uint8Array> {
       throw new Error(`Failed to fetch master asset: /${cleanPath}`);
     }
     const arrayBuf = await res.arrayBuffer();
-    return new Uint8Array(arrayBuf);
+    const buf = new Uint8Array(arrayBuf);
+    assetBufferCache.set(cleanPath, buf);
+    return buf;
   }
 }
 
