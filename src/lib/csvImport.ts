@@ -208,15 +208,35 @@ function mapHeaderIndex(headers: string[]): {
   const mapping: Record<string, number> = {};
 
   normalizedHeaders.forEach((h, index) => {
-    if (h === "email" || h === "emailaddress" || h === "registeredemail" || h === "participantemail") {
-      mapping.email = index;
-    } else if (h === "fullname" || h === "participantname" || h === "name" || h === "studentname") {
-      mapping.fullName = index;
+    if (
+      h === "email" ||
+      h === "emailaddress" ||
+      h === "registeredemail" ||
+      h === "participantemail" ||
+      h.includes("emailaddress") ||
+      h.includes("email")
+    ) {
+      if (mapping.email === undefined) mapping.email = index;
+    } else if (
+      h === "fullname" ||
+      h === "participantname" ||
+      h === "name" ||
+      h === "studentname" ||
+      h.includes("fullname") ||
+      (h.includes("name") &&
+        !h.includes("first") &&
+        !h.includes("last") &&
+        !h.includes("college") &&
+        !h.includes("institute") &&
+        !h.includes("team") &&
+        !h.includes("org"))
+    ) {
+      if (mapping.fullName === undefined) mapping.fullName = index;
     } else if (h === "firstname" || h === "fname") {
       mapping.firstName = index;
     } else if (h === "lastname" || h === "lname") {
       mapping.lastName = index;
-    } else if (h === "confirmation" || h === "confirm" || h === "registrationstatus") {
+    } else if (h === "confirmation" || h === "confirm" || h === "registrationstatus" || h.includes("confirm")) {
       mapping.confirmation = index;
     } else if (h === "attendance" || h === "attended" || h === "present") {
       mapping.attendance = index;
@@ -232,7 +252,7 @@ function mapHeaderIndex(headers: string[]): {
   });
 
   let format: "GOOGLE_FORMS" | "UNSTOP" | "STANDARD_CSV" | "UNKNOWN" = "UNKNOWN";
-  if (normalizedHeaders.includes("timestamp") && normalizedHeaders.includes("firstname")) {
+  if (normalizedHeaders.some((h) => h.includes("timestamp")) && (mapping.fullName !== undefined || mapping.firstName !== undefined)) {
     format = "GOOGLE_FORMS";
   } else if (normalizedHeaders.includes("unstopid") || normalizedHeaders.includes("externalid")) {
     format = "UNSTOP";
