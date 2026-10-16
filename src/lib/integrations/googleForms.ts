@@ -800,18 +800,40 @@ export async function processGoogleFormsSubmission(
         ]
       );
 
-      // 6. Insert eligibility record (NEVER attendance_confirmed=1, ALWAYS PENDING_ORGANIZER_APPROVAL)
+      // 6. Insert eligibility record (Organizer-approved policy: Form submission confirms attendance)
       const eligId = crypto.randomUUID();
       await client.query(
         `INSERT INTO eligibility_records (
            id, registration_id, eligibility_status, attendance_confirmed,
            review_decision_by, review_notes, reviewed_at, created_at, updated_at
-         ) VALUES ($1, $2, 'PENDING_ORGANIZER_APPROVAL', 0, $3, $4, NULL, $5, $5);`,
+         ) VALUES ($1, $2, 'ELIGIBLE', 1, 'ORGANIZER_POLICY', $3, $4, $4, $4);`,
         [
           eligId,
           registrationId,
+          "Organizer-approved policy: Google Form submission confirms participation for Algothon’26.",
+          now,
+        ]
+      );
+
+      // 6b. Write eligibility approval audit log entry
+      const eligAuditId = crypto.randomUUID();
+      await client.query(
+        `INSERT INTO audit_logs (
+           id, actor_id, actor_role, action, target_entity, target_id,
+           previous_state, new_state, ip_address, timestamp
+         ) VALUES ($1, $2, $3, 'ELIGIBILITY_APPROVED', 'eligibility_records', $4, NULL, $5, $6, $7);`,
+        [
+          eligAuditId,
           actor.id,
-          "Google Forms registration received. Pending organizer attendance verification.",
+          actor.role,
+          eligId,
+          JSON.stringify({
+            status: "ELIGIBLE",
+            attendance_confirmed: 1,
+            policy: "ORGANIZER_POLICY",
+            notes: "Organizer-approved policy: Google Form submission confirms participation for Algothon’26.",
+          }),
+          actor.ip || null,
           now,
         ]
       );
@@ -1041,19 +1063,41 @@ export async function processGoogleFormsSubmission(
         now
       );
 
-      // Insert eligibility record
+      // Insert eligibility record (Organizer-approved policy: Form submission confirms attendance)
       const eligId = crypto.randomUUID();
       db.prepare(`
         INSERT INTO eligibility_records (
           id, registration_id, eligibility_status, attendance_confirmed,
           review_decision_by, review_notes, reviewed_at, created_at, updated_at
-        ) VALUES (?, ?, 'PENDING_ORGANIZER_APPROVAL', 0, ?, ?, NULL, ?, ?);
+        ) VALUES (?, ?, 'ELIGIBLE', 1, 'ORGANIZER_POLICY', ?, ?, ?, ?);
       `).run(
         eligId,
         registrationId,
-        actor.id,
-        "Google Forms registration received. Pending organizer attendance verification.",
+        "Organizer-approved policy: Google Form submission confirms participation for Algothon’26.",
         now,
+        now,
+        now
+      );
+
+      // Write eligibility approval audit log
+      const eligAuditId = crypto.randomUUID();
+      db.prepare(`
+        INSERT INTO audit_logs (
+          id, actor_id, actor_role, action, target_entity, target_id,
+          previous_state, new_state, ip_address, timestamp
+        ) VALUES (?, ?, ?, 'ELIGIBILITY_APPROVED', 'eligibility_records', ?, NULL, ?, ?, ?);
+      `).run(
+        eligAuditId,
+        actor.id,
+        actor.role,
+        eligId,
+        JSON.stringify({
+          status: "ELIGIBLE",
+          attendance_confirmed: 1,
+          policy: "ORGANIZER_POLICY",
+          notes: "Organizer-approved policy: Google Form submission confirms participation for Algothon’26.",
+        }),
+        actor.ip || null,
         now
       );
 

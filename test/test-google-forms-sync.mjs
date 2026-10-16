@@ -294,10 +294,10 @@ async function runTests() {
       assert.strictEqual(row.registration_source, "GOOGLE_FORMS");
       assert.strictEqual(row.registration_status, "CONFIRMED");
       assert.strictEqual(row.registered_name, "Alice Test Sync");
-      assert.strictEqual(row.eligibility_status, "PENDING_ORGANIZER_APPROVAL");
-      assert.strictEqual(row.attendance_confirmed, 0, "Attendance MUST NOT be marked confirmed upon registration!");
+      assert.strictEqual(row.eligibility_status, "ELIGIBLE");
+      assert.strictEqual(row.attendance_confirmed, 1, "Attendance confirmed automatically under organizer-approved event policy");
     }
-    console.log("✅ Passed Test 6: Registration created with strict attendance_confirmed=0 safeguard.");
+    console.log("✅ Passed Test 6: Registration created with automatic ELIGIBLE and attendance_confirmed=1 per organizer policy.");
 
     // -------------------------------------------------------------------------
     // TEST 7: Idempotent Duplicate Submission (HTTP 200 ALREADY_PROCESSED)
@@ -559,10 +559,10 @@ async function runTests() {
          WHERE r.external_registration_id = 'GF-SH-0-R99';`
       );
       assert.strictEqual(rowCheck.rows.length, 1, "Exactly 1 registration row must exist");
-      assert.strictEqual(rowCheck.rows[0].attendance_confirmed, 0, "Attendance must strictly remain 0");
-      assert.strictEqual(rowCheck.rows[0].eligibility_status, "PENDING_ORGANIZER_APPROVAL");
+      assert.strictEqual(rowCheck.rows[0].attendance_confirmed, 1, "Attendance confirmed automatically under organizer-approved event policy");
+      assert.strictEqual(rowCheck.rows[0].eligibility_status, "ELIGIBLE");
     }
-    console.log("✅ Passed Test 14: Google Sheets trigger payload normalized and handled idempotently with attendance=0.");
+    console.log("✅ Passed Test 14: Google Sheets trigger payload normalized and handled idempotently with attendance=1.");
 
     // -------------------------------------------------------------------------
     // TEST 15: Multi-Name Prioritization (College/Team Name vs Full Name)
