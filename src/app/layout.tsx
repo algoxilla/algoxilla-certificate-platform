@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -61,6 +62,7 @@ export default function RootLayout({
         </Suspense>
         <main className="flex-1 w-full">{children}</main>
         <Footer />
+        <Analytics />
       </body>
     </html>
   );
