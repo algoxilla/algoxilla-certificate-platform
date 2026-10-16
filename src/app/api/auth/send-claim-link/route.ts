@@ -103,12 +103,27 @@ export async function POST(request: Request): Promise<NextResponse> {
     const claimUrl = `${baseUrl}/portal/claim?token=${encodeURIComponent(rawToken)}`;
 
     // 5. Dispatch via Brevo
-    await brevoService.sendClaimLink({
+    const emailResult = await brevoService.sendClaimLink({
       toEmail: email,
       recipientName,
       claimUrl,
       expiresMinutes: 15,
     });
+
+    if (email === "hello@algoxilla.com" || process.env.APP_LIVE !== "true") {
+      return NextResponse.json(
+        {
+          ...genericResponse,
+          delivery: {
+            provider: emailResult.provider,
+            success: emailResult.success,
+            messageId: emailResult.messageId || null,
+            error: emailResult.error || null,
+          },
+        },
+        { status: 200 }
+      );
+    }
 
     return NextResponse.json(genericResponse, { status: 200 });
   } catch (error: unknown) {
